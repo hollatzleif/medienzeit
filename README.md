@@ -185,6 +185,21 @@ Write-Host "=== Code-Integrität ===" -ForegroundColor Cyan
 Get-WinEvent -LogName 'Microsoft-Windows-CodeIntegrity/Operational' -MaxEvents 3 -ErrorAction SilentlyContinue | Format-List TimeCreated, Message
 ```
 
+**Ist ein zusätzlicher Virenschutz installiert (z. B. AVG, Avast, Norton)**, blockiert meist dieser das Programm, weil es nicht digital signiert ist. Dann von Hand im Virenschutz:
+
+1. Den Virenschutz öffnen (Symbol unten rechts neben der Uhr).
+2. Bei AVG/Avast **Menü (☰) → Einstellungen → Allgemein → Ausnahmen → Ausnahme hinzufügen** und `C:\Program Files\Medienzeit\*` eintragen. Bei anderen Programmen heißt das „Ausnahmen“ oder „Ausschlüsse“.
+3. Unter **Quarantäne** nachsehen, ob dort `Medienzeit.Agent.exe` liegt. Falls ja: **Wiederherstellen** und als Ausnahme hinzufügen.
+
+Danach den Dienst starten und prüfen:
+
+```powershell
+Start-Service MedienzeitAgent
+Start-Sleep -Seconds 8
+Get-Service MedienzeitAgent | Format-List Status, StartType
+& 'C:\Program Files\Medienzeit\Medienzeit.Agent.exe' --check
+```
+
 Danach prüfen. Es muss „Kind-Konto ist Standardbenutzer“ und „Server ok“ erscheinen:
 
 ```powershell
