@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="referrer" content="no-referrer">
+  <meta name="theme-color" content="#f5f3ef">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Medienzeit Eltern">
+  <link rel="manifest" href="manifest-e.json">
+  <link rel="icon" href="icon.svg">
+  <link rel="apple-touch-icon" href="icon.svg">
+  <link rel="stylesheet" href="app.css">
+  <title>Medienzeit – Eltern</title>
+</head>
+<body>
+  <main>
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+      <h1>Medienzeit</h1>
+      <button class="chip on" id="who">Wer bist du?</button>
+    </div>
+
+    <nav class="tabs" id="tabs">
+      <button data-tab="overview" class="on">Übersicht</button>
+      <button data-tab="penalty">Strafe</button>
+      <button data-tab="more">Mehr Zeit</button>
+      <button data-tab="exams">Klausuren</button>
+      <button data-tab="log">Protokoll</button>
+      <button data-tab="settings">Einstellungen</button>
+    </nav>
+
+    <!-- Übersicht -->
+    <div data-pane="overview">
+      <section id="status" class="card status"><div class="big">Lade …</div></section>
+      <section class="card">
+        <h2>Laptop</h2>
+        <div id="device"></div>
+      </section>
+      <section class="card">
+        <h2>Offene Strafen</h2>
+        <div id="penalties"></div>
+      </section>
+      <section class="card">
+        <h2>Checkliste heute</h2>
+        <div id="checklist"></div>
+      </section>
+      <section class="card">
+        <h2>Diese Woche</h2>
+        <div id="week"></div>
+      </section>
+    </div>
+
+    <!-- Strafe -->
+    <div data-pane="penalty" class="hidden">
+      <section class="card">
+        <div class="seg" id="mode">
+          <button data-mode="A" class="on">Sofort</button>
+          <button data-mode="B">Heute früher Schluss</button>
+        </div>
+        <p class="muted small" id="mode-help"></p>
+        <div class="penalty-grid" id="catalog"></div>
+      </section>
+    </div>
+
+    <!-- Mehr Zeit -->
+    <div data-pane="more" class="hidden">
+      <section class="card">
+        <h2>Sonderfreigabe jetzt</h2>
+        <p class="muted small">Gilt sofort – unabhängig von Zeitplan, Checkliste und Strafen. Laufende Strafen pausieren so lange.</p>
+        <div class="chips" id="grant-chips">
+          <button class="chip" data-min="15">15 Min.</button>
+          <button class="chip" data-min="30">30 Min.</button>
+          <button class="chip" data-min="60">1 Std.</button>
+          <button class="chip" data-min="120">2 Std.</button>
+        </div>
+        <label>Minuten</label>
+        <input type="number" id="grant-min" inputmode="numeric" min="1" placeholder="z. B. 45">
+        <label>Begründung</label>
+        <input id="grant-reason" placeholder="z. B. Guthaben eingelöst">
+        <p></p>
+        <button id="grant-go">Freigeben (PIN)</button>
+      </section>
+
+      <section class="card">
+        <h2>Zeit an einem Tag ändern</h2>
+        <p class="muted small">Späteres Ende oder früherer Start = mehr Zeit (z. B. Guthaben einlösen). Früheres Ende = Sperrzeit verlängern. Die Checkliste gilt weiterhin.</p>
+        <label>Tag</label>
+        <input type="date" id="day-date">
+        <p class="muted small" id="day-current"></p>
+        <div class="grid2">
+          <div><label>Start (leer = unverändert)</label><input type="time" id="day-start"></div>
+          <div><label>Ende (leer = unverändert)</label><input type="time" id="day-end"></div>
+        </div>
+        <label>Begründung</label>
+        <input id="day-reason" placeholder="z. B. Im Garten geholfen">
+        <p></p>
+        <button id="day-go">Speichern (PIN)</button>
+      </section>
+      <p class="muted small" style="padding:0 6px">Strafen verringern oder aufheben: in der Übersicht bei der Strafe auf „Verringern“ tippen.</p>
+    </div>
+
+    <!-- Klausuren -->
+    <div data-pane="exams" class="hidden">
+      <section class="card">
+        <h2>Neu eintragen</h2>
+        <div class="grid2">
+          <div><label>Datum</label><input type="date" id="exam-date"></div>
+          <div><label>Art</label>
+            <select id="exam-kind"><option value="klausur">Klausur</option><option value="test">Test</option></select>
+          </div>
+        </div>
+        <label>Fach</label>
+        <input id="exam-subject" placeholder="z. B. Mathe">
+        <p></p>
+        <button id="exam-go">Eintragen</button>
+      </section>
+      <section class="card">
+        <h2>Anstehend</h2>
+        <div id="exams"></div>
+      </section>
+    </div>
+
+    <!-- Protokoll -->
+    <div data-pane="log" class="hidden">
+      <section class="card">
+        <div class="grid2">
+          <div><label>Person</label><select id="log-person"><option value="">alle</option></select></div>
+          <div><label>Art</label>
+            <select id="log-kind">
+              <option value="">alle</option>
+              <option value="strafe">Strafen</option>
+              <option value="aenderung">Änderungen</option>
+              <option value="checkliste">Checkliste</option>
+              <option value="klausur">Klausuren</option>
+              <option value="laptop">Laptop</option>
+              <option value="einstellung">Einstellungen</option>
+            </select>
+          </div>
+          <div><label>von</label><input type="date" id="log-from"></div>
+          <div><label>bis</label><input type="date" id="log-to"></div>
+        </div>
+        <p></p>
+        <button id="log-go" class="secondary">Filtern</button>
+      </section>
+      <section class="card"><div id="log"></div></section>
+    </div>
+
+    <!-- Einstellungen -->
+    <div data-pane="settings" class="hidden">
+      <div id="settings"></div>
+    </div>
+  </main>
+  <script src="common.js"></script>
+  <script src="eltern.js"></script>
+</body>
+</html>

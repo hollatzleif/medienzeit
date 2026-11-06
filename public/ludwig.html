@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="referrer" content="no-referrer">
+  <meta name="theme-color" content="#f5f3ef">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Medienzeit">
+  <link rel="manifest" href="manifest-l.json">
+  <link rel="icon" href="icon.svg">
+  <link rel="apple-touch-icon" href="icon.svg">
+  <link rel="stylesheet" href="app.css">
+  <title>Meine Medienzeit</title>
+</head>
+<body>
+  <main>
+    <h1>Hallo Ludwig!</h1>
+    <section id="status" class="card status"><div class="big">Lade …</div></section>
+
+    <section class="card">
+      <h2>Checkliste für heute</h2>
+      <div id="checklist"></div>
+    </section>
+
+    <section class="card">
+      <h2>Offene Strafen</h2>
+      <div id="penalties"></div>
+    </section>
+
+    <section class="card">
+      <h2>Klausuren und Tests</h2>
+      <div id="exams"></div>
+    </section>
+
+    <section class="card">
+      <h2>Diese Woche</h2>
+      <div id="week"></div>
+    </section>
+
+    <section class="card">
+      <h2>Was passiert ist (letzte 7 Tage)</h2>
+      <div id="log"></div>
+    </section>
+  </main>
+  <script src="common.js"></script>
+  <script src="ludwig.js"></script>
+</body>
+</html>

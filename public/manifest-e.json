@@ -1,0 +1,1 @@
+{ "name": "Medienzeit – Eltern", "short_name": "Medienzeit", "start_url": "./", "display": "standalone", "background_color": "#f5f3ef", "theme_color": "#f5f3ef", "icons": [{ "src": "icon.svg", "sizes": "any", "type": "image/svg+xml" }] }
