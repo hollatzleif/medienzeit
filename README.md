@@ -169,6 +169,22 @@ Write-Host "=== Check ===" -ForegroundColor Cyan
 & 'C:\Program Files\Medienzeit\Medienzeit.Agent.exe' --check
 ```
 
+**Steht dort beim Check „Zugriff verweigert“**, blockiert meist ein Windows-Schutz das Programm. Dieser Block zeigt, welcher:
+
+```powershell
+Write-Host "=== Datei und Rechte ===" -ForegroundColor Cyan
+Get-Item 'C:\Program Files\Medienzeit\Medienzeit.Agent.exe' | Format-List FullName, Length
+icacls 'C:\Program Files\Medienzeit\Medienzeit.Agent.exe'
+Write-Host "=== Virenschutz ===" -ForegroundColor Cyan
+Get-CimInstance -Namespace root/SecurityCenter2 -ClassName AntiVirusProduct | Select-Object displayName
+Write-Host "=== Intelligente App-Steuerung (0 = aus, 1 = an, 2 = Testphase) ===" -ForegroundColor Cyan
+(Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\CI\Policy' -ErrorAction SilentlyContinue).VerifiedAndReputablePolicyState
+Write-Host "=== Von Defender blockiert? ===" -ForegroundColor Cyan
+Get-MpThreatDetection -ErrorAction SilentlyContinue | Select-Object -First 3 | Format-List InitialDetectionTime, Resources, ActionSuccess
+Write-Host "=== Code-Integrität ===" -ForegroundColor Cyan
+Get-WinEvent -LogName 'Microsoft-Windows-CodeIntegrity/Operational' -MaxEvents 3 -ErrorAction SilentlyContinue | Format-List TimeCreated, Message
+```
+
 Danach prüfen. Es muss „Kind-Konto ist Standardbenutzer“ und „Server ok“ erscheinen:
 
 ```powershell
