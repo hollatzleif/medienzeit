@@ -145,6 +145,18 @@ Add-LocalGroupMember -SID S-1-5-32-545 -Member $Kind -ErrorAction SilentlyContin
 powershell -ExecutionPolicy Bypass -File .\install.ps1 -ServerUrl $Server -DeviceToken $Token -ChildAccount $Kind
 ```
 
+**Erscheint der Fehler „Join-Path: Das Argument kann nicht an den Parameter "Path" gebunden werden …“**, stammt die Zip noch aus Release `v1.0.0`. Dann stattdessen diesen Befehl nehmen:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\install.ps1 -ServerUrl $Server -DeviceToken $Token -ChildAccount $Kind -ExePath "$env:USERPROFILE\Downloads\medienzeit-laptop\Medienzeit.Agent.exe"
+```
+
+Kommt danach „Medienzeit.Agent.exe nicht gefunden“, zeigt dieser Befehl, wo die Datei beim Entpacken gelandet ist:
+
+```powershell
+Get-ChildItem "$env:USERPROFILE\Downloads\medienzeit-laptop" -Recurse | Select-Object FullName
+```
+
 Danach prüfen. Es muss „Kind-Konto ist Standardbenutzer“ und „Server ok“ erscheinen:
 
 ```powershell
