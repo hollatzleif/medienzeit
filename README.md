@@ -46,6 +46,8 @@ Mama:1234,Papa:5678,Leif:2468,Gretja:1357,Enzo:9753
 
 Die Namen erscheinen genau so in der App.
 
+> **Alle Werte sicher aufheben** (z. B. im Passwort-Manager). GitHub zeigt gespeicherte Secrets nie wieder an. Das `DEVICE_TOKEN` brauchst du später am Laptop (Schritt 8), die beiden Link-Tokens für die Links (Schritt 6).
+
 ### 3. Datenbank (D1) anlegen
 
 1. Im Cloudflare-Dashboard: **Storage & Databases → D1 SQL Database → Create**.
@@ -90,26 +92,191 @@ Den Eltern-Link an Mama, Papa, Gretja und Enzo schicken. Am iPhone in Safari öf
 
 In der Eltern-Ansicht **Einstellungen → Ferien und Feiertage** öffnen. Vorbelegt sind die Thurgauer Schulferien 2026/27 und 2027/28 aus öffentlichen Ferienkalendern sowie die Feiertage 2028. **Bitte mit dem Ferienplan von Ludwigs Sekundarschulgemeinde abgleichen**, denn einzelne Gemeinden weichen ab. Beim 1. Mai 2028 ist unklar, ob schulfrei ist.
 
-### 8. Laptop-Programm installieren
+### 8. Laptop einrichten: alle Befehle zum Kopieren
 
-1. Im Repo auf **Releases → Draft a new release** klicken, als Tag `v1.0.0` eintragen und auf **Publish release** klicken. Die Action „Laptop-Programm bauen“ hängt nach etwa 5 Minuten `medienzeit-laptop.zip` an das Release.
-2. Auf dem Laptop mit dem **Admin-Konto** anmelden, die Zip herunterladen und entpacken.
-3. PowerShell **als Administrator** öffnen, in den entpackten Ordner wechseln und Folgendes ausführen:
+**Vorbereitung:** Im Repo auf **Releases → Draft a new release** klicken, als Tag `v1.0.0` eintragen und auf **Publish release** klicken. Die Action „Laptop-Programm bauen“ hängt nach etwa 5 Minuten `medienzeit-laptop.zip` an das Release. Diese Datei auf dem Laptop mit dem **Admin-Konto** in den Ordner *Downloads* herunterladen.
 
-   ```powershell
-   powershell -ExecutionPolicy Bypass -File .\install.ps1 -ServerUrl https://medienzeit.<subdomain>.workers.dev -DeviceToken <DEVICE_TOKEN> -ChildAccount Ludwig
-   ```
+**So geht's:**
 
-   `-ChildAccount` ist der Windows-Kontoname von Ludwig. Ohne Parameter fragt das Skript nach den Werten und zeigt die Konten an.
-4. Prüfen:
+- Auf dem Laptop mit dem Admin-Konto angemeldet bleiben.
+- **Windows-Taste + X** drücken und dann **„Terminal (Administrator)“** bzw. **„Windows PowerShell (Administrator)“** wählen. Die Frage „Änderungen zulassen?“ mit **Ja** beantworten.
+- Die Befehle **der Reihe nach** kopieren: Kasten markieren, mit Rechtsklick ins blaue/schwarze Fenster einfügen und Enter drücken.
+- **Das Fenster bis zum Schluss offen lassen**, weil sich die Befehle die Angaben aus Schritt 8.1 merken.
 
-   ```powershell
-   & 'C:\Program Files\Medienzeit\Medienzeit.Agent.exe' --check
-   ```
+#### 8.1 Angaben eintragen (einmal)
 
-   In der Eltern-Ansicht steht unter „Laptop“ dann **verbunden**, und im Protokoll erscheint „Sperrprogramm gestartet“.
+In den drei Zeilen die Werte in Anführungszeichen ersetzen, dann einfügen:
 
-Details, Hilfsbefehle und ein Prüfprotokoll zum Abhaken stehen in [`agent/README-Agent.md`](agent/README-Agent.md).
+```powershell
+$Kind   = "Ludwig"
+$Server = "https://medienzeit.DEINE-SUBDOMAIN.workers.dev"
+$Token  = "HIER-DAS-DEVICE_TOKEN-EINFÜGEN"
+```
+
+`$Kind` ist der Windows-Kontoname von Ludwig. Wer unsicher ist, lässt sich alle Konten anzeigen:
+
+```powershell
+Get-LocalUser | Format-Table Name, Enabled, FullName
+```
+
+Hat Ludwig ein Microsoft-Konto, steht hier meist eine Kurzform seiner E-Mail-Adresse, z. B. `ludwi`. Genau diesen Namen bei `$Kind` eintragen und die Zeile `$Kind = …` nochmal ausführen.
+
+#### 8.2 Zip entpacken
+
+```powershell
+$Ordner = "$env:USERPROFILE\Downloads\medienzeit-laptop"
+Expand-Archive -Path "$env:USERPROFILE\Downloads\medienzeit-laptop.zip" -DestinationPath $Ordner -Force
+Get-ChildItem $Ordner | Unblock-File
+Set-Location $Ordner
+```
+
+#### 8.3 Ludwig zum Standard-Benutzer machen
+
+Der Befehl nimmt Ludwig aus der Gruppe der Administratoren. Eine rote Meldung „ist kein Mitglied“ ist gut, dann war er es schon nicht.
+
+```powershell
+Remove-LocalGroupMember -SID S-1-5-32-544 -Member $Kind -ErrorAction Continue
+Add-LocalGroupMember -SID S-1-5-32-545 -Member $Kind -ErrorAction SilentlyContinue
+```
+
+#### 8.4 Sperrprogramm installieren
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\install.ps1 -ServerUrl $Server -DeviceToken $Token -ChildAccount $Kind
+```
+
+Danach prüfen. Es muss „Kind-Konto ist Standardbenutzer“ und „Server ok“ erscheinen:
+
+```powershell
+& 'C:\Program Files\Medienzeit\Medienzeit.Agent.exe' --check
+```
+
+In der Eltern-Ansicht steht unter „Laptop“ dann **verbunden**, und im Protokoll erscheint „Sperrprogramm gestartet“.
+
+#### 8.5 Gastkonto und eingebautes Administrator-Konto abschalten
+
+```powershell
+Get-LocalUser | Where-Object { $_.SID.Value -like '*-501' } | Disable-LocalUser
+```
+
+Das eingebaute Konto „Administrator“ wird nur abgeschaltet, wenn du nicht gerade selbst damit angemeldet bist:
+
+```powershell
+$ich = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+Get-LocalUser | Where-Object { $_.SID.Value -like '*-500' -and $_.SID.Value -ne $ich } | Disable-LocalUser
+```
+
+#### 8.6 Prüfen, wer Administrator ist
+
+```powershell
+Get-LocalGroupMember -SID S-1-5-32-544
+```
+
+In der Liste dürfen nur Konten stehen, deren Passwort Ludwig **nicht** kennt. Steht dort ein weiteres Konto, dessen Passwort er kennt, dieses Passwort ändern. Den Befehl dafür so anpassen, dass `NAME` durch den Kontonamen ersetzt ist:
+
+```powershell
+Set-LocalUser -Name "NAME" -Password (Read-Host "Neues Passwort" -AsSecureString)
+```
+
+Bei einem Microsoft-Konto geht das nicht per Befehl. Dann das Passwort auf <https://account.microsoft.com> ändern.
+
+Bricht `Get-LocalGroupMember` mit einem Fehler ab (passiert manchmal bei Microsoft-Konten), geht es stattdessen so:
+
+```powershell
+net localgroup Administratoren
+```
+
+#### 8.7 Secure Boot prüfen
+
+```powershell
+Confirm-SecureBootUEFI
+```
+
+- **True:** alles gut.
+- **False** oder eine Fehlermeldung: Secure Boot ist aus. Es wird in Schritt 8.9 im BIOS eingeschaltet.
+
+#### 8.8 Laufwerk verschlüsseln (BitLocker / Geräteverschlüsselung)
+
+Ohne Verschlüsselung kommt man über die Wiederherstellungsumgebung an alle Dateien. Zuerst prüfen, welche Windows-Version läuft und ob schon verschlüsselt ist:
+
+```powershell
+(Get-CimInstance Win32_OperatingSystem).Caption
+Get-BitLockerVolume -MountPoint "C:" | Format-List VolumeStatus, ProtectionStatus, EncryptionPercentage
+```
+
+- Steht dort `FullyEncrypted` und `On`, ist schon alles erledigt. Weiter mit dem Wiederherstellungsschlüssel unten.
+- **Windows Pro, noch nicht verschlüsselt:**
+
+  ```powershell
+  Add-BitLockerKeyProtector -MountPoint "C:" -RecoveryPasswordProtector
+  Enable-BitLocker -MountPoint "C:" -EncryptionMethod XtsAes128 -UsedSpaceOnly -TpmProtector
+  ```
+
+  Danach den Laptop einmal neu starten. Die Verschlüsselung läuft dann im Hintergrund weiter.
+- **Windows Home:** Hier gibt es nur die „Geräteverschlüsselung“. Diese Einstellungsseite öffnen und einschalten:
+
+  ```powershell
+  start ms-settings:deviceencryption
+  ```
+
+  Fehlt die Seite, unterstützt der Laptop keine Verschlüsselung. Dann bleibt es beim BIOS-Passwort aus Schritt 8.9.
+
+**Wiederherstellungsschlüssel anzeigen und aufschreiben** (bei Windows Pro). Den Schlüssel sicher bei den Eltern aufbewahren, **nicht** am Laptop:
+
+```powershell
+(Get-BitLockerVolume -MountPoint "C:").KeyProtector | Where-Object KeyProtectorType -eq 'RecoveryPassword' | Format-List KeyProtectorId, RecoveryPassword
+```
+
+Bei Windows Home liegt der Schlüssel im Microsoft-Konto unter <https://account.microsoft.com/devices/recoverykey>.
+
+#### 8.9 BIOS/UEFI: Passwort, USB-Boot, Secure Boot (geht nur von Hand)
+
+Diese drei Einstellungen liegen in der Firmware des Laptops, dafür gibt es keinen Windows-Befehl. Der Befehl hier startet den Laptop direkt ins BIOS/UEFI. **Vorher alles speichern!**
+
+```powershell
+shutdown /r /fw /t 0
+```
+
+Die Menüs sehen je nach Hersteller anders aus. Gesucht wird:
+
+1. **Security → Supervisor/Administrator Password** setzen. Notieren und bei den Eltern aufbewahren.
+2. **Boot → USB Boot** auf *Disabled* stellen oder die interne SSD an die erste Stelle der Bootreihenfolge setzen.
+3. **Secure Boot** auf *Enabled* stellen.
+4. Mit **F10** (oder „Save & Exit“) speichern.
+
+Danach Windows wieder starten, mit dem Admin-Konto anmelden und erneut ein Terminal (Administrator) öffnen. Die Angaben aus 8.1 sind nach dem Neustart vergessen, für 8.11 braucht man sie aber nicht.
+
+#### 8.10 Microsoft Family Safety als Sicherheitsnetz
+
+Das geht nur im Browser und nur, wenn Ludwig ein Microsoft-Konto in eurer Familiengruppe hat:
+
+```powershell
+start https://family.microsoft.com
+```
+
+Bei Ludwig unter **Bildschirmzeit** feste Zeiten großzügiger als in der App einstellen, z. B. 07:00–22:30. Dann greift Family Safety nur, falls das Sperrprogramm einmal ausfällt.
+
+#### 8.11 Abschlusskontrolle
+
+```powershell
+Get-Service MedienzeitAgent | Format-List Status, StartType
+Get-LocalUser | Format-Table Name, Enabled
+Get-LocalGroupMember -SID S-1-5-32-544
+Confirm-SecureBootUEFI
+Get-BitLockerVolume -MountPoint "C:" | Format-List VolumeStatus, ProtectionStatus
+```
+
+Soll-Ergebnis:
+
+- Dienst `Running` / `Automatic`.
+- Gast und eingebauter Administrator auf `False`.
+- Ludwig steht nicht bei den Administratoren.
+- Secure Boot `True`.
+- BitLocker `On`. Bei Windows Home kann hier ein Fehler erscheinen, dann zählt die Einstellungsseite aus 8.8.
+
+Danach mit **Ludwigs Konto** anmelden und das Prüfprotokoll in [`agent/README-Agent.md`](agent/README-Agent.md) durchgehen, vor allem die Umgehungsversuche.
+
+> Hinweis: Diese Befehle sind Standard-Windows-Befehle. Auf einem echten Laptop konnte ich sie nicht ausprobieren. Erscheint eine rote Fehlermeldung, die oben nicht erklärt ist: Meldung abfotografieren und nicht weitermachen, sondern erst klären.
 
 ### 9. Testen
 
@@ -148,6 +315,8 @@ Im GitHub-Secret `PARENT_TOKEN` bzw. `LUDWIG_TOKEN` einen neuen Wert eintragen (
 ---
 
 ## Sicherheits-Checkliste für den Laptop
+
+Die Befehle dazu stehen in Schritt 8. Hier zum Abhaken:
 
 - [ ] **Ludwig ist Standard-Benutzer**, kein Administrator. Prüfen unter *Einstellungen → Konten → Andere Benutzer*. Das Programm sperrt absichtlich nichts, wenn das Kind-Konto Admin ist.
 - [ ] **Kein weiteres Admin-Konto, dessen Passwort Ludwig kennt.** Das Admin-Passwort ist lang und steht nirgends auf einem Zettel am Laptop.
@@ -241,7 +410,8 @@ dotnet test agent/Medienzeit.sln
 | Was | Wie Leif es prüft |
 | --- | --- |
 | Windows-Dienst auf echter Hardware: Meldungen, Abmeldung, Sperrstatus, SafeBoot, Neustart nach Absturz | Prüfprotokoll in `agent/README-Agent.md` |
-| `install.ps1` / `uninstall.ps1` wirklich ausgeführt (nur auf Syntax geprüft) | Schritt 8; danach `sc qc MedienzeitAgent` und `--check` |
+| `install.ps1` / `uninstall.ps1` wirklich ausgeführt (nur auf Syntax geprüft) | Schritt 8.4; danach `sc qc MedienzeitAgent` und `--check` |
+| Befehle zum Absichern (Gastkonto, Admins, Secure Boot, BitLocker) | Schritt 8.11 Abschlusskontrolle |
 | Umgehungsversuche als Ludwig (Dienst stoppen, Task-Manager, Zeitzone, WLAN aus) | Prüfprotokoll, Abschnitt „Umgehungsversuche“ |
 | Energiesparmodus / Ruhezustand mitten in der Medienzeit | Prüfprotokoll |
 | Echter Deploy auf Cloudflare inkl. Limits | Schritt 5 + 9; im Cloudflare-Dashboard unter *Workers → medienzeit → Metrics* CPU-Zeit ansehen |
