@@ -21,10 +21,19 @@ param(
     [string]$ServerUrl,
     [string]$DeviceToken,
     [string]$ChildAccount,
-    [string]$ExePath = (Join-Path $PSScriptRoot 'Medienzeit.Agent.exe')
+    [string]$ExePath
 )
 
 $ErrorActionPreference = 'Stop'
+
+# Ordner des Skripts bestimmen ($PSScriptRoot ist bei manchen Aufrufen leer)
+if (-not $ExePath) {
+    $ScriptDir = $PSScriptRoot
+    if (-not $ScriptDir -and $MyInvocation.MyCommand.Path) { $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path }
+    if (-not $ScriptDir) { $ScriptDir = (Get-Location).Path }
+    $ExePath = Join-Path $ScriptDir 'Medienzeit.Agent.exe'
+    if (-not (Test-Path $ExePath)) { $ExePath = Join-Path (Get-Location).Path 'Medienzeit.Agent.exe' }
+}
 $ServiceName = 'MedienzeitAgent'
 $ProgramDir  = Join-Path $env:ProgramFiles 'Medienzeit'
 $DataDir     = Join-Path $env:ProgramData 'Medienzeit'
