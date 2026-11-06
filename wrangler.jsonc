@@ -18,7 +18,7 @@
       "binding": "DB",
       "database_name": "medienzeit",
       // Nach dem Anlegen der Datenbank hier die ID eintragen (siehe README, Schritt 3).
-      "database_id": "00000000-0000-0000-0000-000000000000",
+      "database_id": "0117280e-b452-4d78-bd41-fe6401b742d2",
       "migrations_dir": "migrations"
     }
   ],
