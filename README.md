@@ -157,6 +157,18 @@ Kommt danach „Medienzeit.Agent.exe nicht gefunden“, zeigt dieser Befehl, wo 
 Get-ChildItem "$env:USERPROFILE\Downloads\medienzeit-laptop" -Recurse | Select-Object FullName
 ```
 
+**Erscheint „Start-Service: Der Dienst … kann nicht gestartet werden“**, zeigt dieser Block, woran es liegt. Alles markieren, einfügen, Enter drücken, die Ausgabe abfotografieren und weitergeben:
+
+```powershell
+Write-Host "=== Protokoll ===" -ForegroundColor Cyan
+Get-Content C:\ProgramData\Medienzeit\agent.log -Tail 25 -ErrorAction SilentlyContinue
+Write-Host "=== Windows-Ereignisse ===" -ForegroundColor Cyan
+Get-WinEvent -LogName Application -MaxEvents 30 | Where-Object { $_.ProviderName -match '\.NET|Application Error|Medienzeit' } | Select-Object -First 3 | Format-List TimeCreated, ProviderName, Message
+Get-WinEvent -LogName System -MaxEvents 30 | Where-Object { $_.ProviderName -eq 'Service Control Manager' } | Select-Object -First 3 | Format-List TimeCreated, Message
+Write-Host "=== Check ===" -ForegroundColor Cyan
+& 'C:\Program Files\Medienzeit\Medienzeit.Agent.exe' --check
+```
+
 Danach prüfen. Es muss „Kind-Konto ist Standardbenutzer“ und „Server ok“ erscheinen:
 
 ```powershell
