@@ -228,6 +228,22 @@ Get-Service MedienzeitAgent | Format-List Status
 - **Klappt es jetzt:** AVG ist schuld. In AVG unter **Menü (☰) → Einstellungen → Allgemein → Blockierte und zugelassene Apps → App zulassen** die Datei `C:\Program Files\Medienzeit\Medienzeit.Agent.exe` auswählen. Das ist eine andere Liste als „Ausnahmen“. Danach den Schutz wieder einschalten und den Block nochmal einfügen.
 - **Klappt es immer noch nicht:** Die genaue Fehlermeldung abfotografieren.
 
+**Wenn es mit AVG gar nicht klappt: AVG entfernen.** Der eingebaute Windows Defender schützt danach automatisch weiter. Zuerst die App-Liste öffnen, dort **AVG Antivirus → Deinstallieren** wählen und den Anweisungen folgen:
+
+```powershell
+start ms-settings:appsfeatures
+```
+
+Danach den Laptop **neu starten**, wieder mit dem Admin-Konto ein Terminal (Administrator) öffnen und prüfen. Defender muss bei beiden Werten `True` zeigen, danach wird der Dienst gestartet:
+
+```powershell
+Get-MpComputerStatus | Format-List AntivirusEnabled, RealTimeProtectionEnabled
+& 'C:\Program Files\Medienzeit\Medienzeit.Agent.exe' --check
+Start-Service MedienzeitAgent
+Start-Sleep -Seconds 8
+Get-Service MedienzeitAgent | Format-List Status
+```
+
 Danach prüfen. Es muss „Kind-Konto ist Standardbenutzer“ und „Server ok“ erscheinen:
 
 ```powershell
