@@ -216,6 +216,18 @@ Write-Host "=== Dateigröße (sollte ca. 70 MB sein) ===" -ForegroundColor Cyan
 (Get-Item 'C:\Program Files\Medienzeit\Medienzeit.Agent.exe').Length / 1MB
 ```
 
+**Gegenprobe mit ausgeschaltetem Virenschutz** (wenn beide Tests „Zugriff verweigert“ zeigen): In AVG mit Rechtsklick auf das Symbol neben der Uhr den Schutz **für 10 Minuten ausschalten**. Dann diesen Block einfügen:
+
+```powershell
+& 'C:\Program Files\Medienzeit\Medienzeit.Agent.exe' --check
+Start-Service MedienzeitAgent
+Start-Sleep -Seconds 8
+Get-Service MedienzeitAgent | Format-List Status
+```
+
+- **Klappt es jetzt:** AVG ist schuld. In AVG unter **Menü (☰) → Einstellungen → Allgemein → Blockierte und zugelassene Apps → App zulassen** die Datei `C:\Program Files\Medienzeit\Medienzeit.Agent.exe` auswählen. Das ist eine andere Liste als „Ausnahmen“. Danach den Schutz wieder einschalten und den Block nochmal einfügen.
+- **Klappt es immer noch nicht:** Die genaue Fehlermeldung abfotografieren.
+
 Danach prüfen. Es muss „Kind-Konto ist Standardbenutzer“ und „Server ok“ erscheinen:
 
 ```powershell
