@@ -7,12 +7,12 @@ on:
   pull_request:
     paths:
       - 'agent/**'
-      - 'scripts/*.ps1'
+      - 'agent/scripts/*.ps1'
   push:
     branches: [main]
     paths:
       - 'agent/**'
-      - 'scripts/*.ps1'
+      - 'agent/scripts/*.ps1'
 
 permissions:
   contents: write
@@ -65,7 +65,7 @@ jobs:
       - name: Skripte dazulegen und packen
         shell: pwsh
         run: |
-          Copy-Item scripts/install.ps1, scripts/uninstall.ps1, agent/README-Agent.md out/medienzeit-laptop/
+          Copy-Item agent/scripts/install.ps1, agent/scripts/uninstall.ps1, agent/README-Agent.md out/medienzeit-laptop/
           Compress-Archive -Path out/medienzeit-laptop/* -DestinationPath medienzeit-laptop.zip -Force
 
       - name: Als Artefakt speichern

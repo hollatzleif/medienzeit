@@ -1,0 +1,121 @@
+name: Laptop-Skript testen
+
+on:
+  push:
+    paths:
+      - 'laptop/**'
+  pull_request:
+    paths:
+      - 'laptop/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test-linux:
+    name: Logik-Tests (PowerShell 7)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tests
+        shell: pwsh
+        run: ./laptop/tests/agent.tests.ps1
+
+  test-windows:
+    name: Syntax und Tests unter Windows PowerShell 5.1
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Syntaxprüfung mit Windows PowerShell 5.1
+        shell: powershell
+        run: |
+          $fail = 0
+          foreach ($f in Get-ChildItem laptop -Recurse -Filter *.ps1) {
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile($f.FullName, [ref]$null, [ref]$errors) | Out-Null
+            if ($errors) { $fail++; $errors | ForEach-Object { Write-Host "$($f.Name): $($_.Message) (Zeile $($_.Extent.StartLineNumber))" } }
+          }
+          if ($fail) { exit 1 }
+      - name: WTS-Code kompilieren (Add-Type wie auf dem Laptop)
+        shell: powershell
+        run: |
+          $code = Get-Content laptop/agent.ps1 -Raw -Encoding UTF8
+          $start = $code.IndexOf("`$wtsCode = @'") + 13
+          $end = $code.IndexOf("'@", $start)
+          Add-Type -TypeDefinition $code.Substring($start, $end - $start).Trim() -Language CSharp
+          $n = [MedienzeitWts]::List().Count
+          Write-Host "Sitzungen gefunden: $n, Tick: $([MedienzeitWts]::GetTickCount64())"
+      - name: Logik-Tests unter Windows PowerShell 5.1
+        shell: powershell
+        run: |
+          $env:MEDIENZEIT_LIB_ONLY = '1'
+          # Join-Path mit drei Teilen gibt es in 5.1 nicht – Testskript kopieren und anpassen
+          (Get-Content laptop/tests/agent.tests.ps1 -Raw -Encoding UTF8).Replace("(Join-Path `$PSScriptRoot '..' 'agent.ps1')", "(Join-Path (Split-Path `$PSScriptRoot -Parent) 'agent.ps1')") | Set-Content laptop/tests/agent.tests51.ps1 -Encoding UTF8
+          ./laptop/tests/agent.tests51.ps1
+
+  install-windows:
+    name: Installation unter Windows mit Test-Server
+    runs-on: windows-latest
+    needs: test-windows
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Test-Server starten (wrangler dev, lokale Datenbank)
+        shell: powershell
+        run: |
+          Set-Content .dev.vars "LUDWIG_TOKEN=ludwig-test-token-1234567890`nPARENT_TOKEN=eltern-test-token-1234567890`nDEVICE_TOKEN=geraet-test-token-1234567890`nPINS=Mama:1111,Papa:2222" -Encoding ASCII
+          npx wrangler d1 migrations apply DB --local
+          Start-Process -FilePath "cmd.exe" -ArgumentList '/c', 'npx wrangler dev --port 8787 --ip 127.0.0.1 > wrangler.log 2>&1' -WindowStyle Hidden
+          for ($i = 0; $i -lt 60; $i++) {
+            try { Invoke-WebRequest -UseBasicParsing http://127.0.0.1:8787/ -ErrorAction Stop | Out-Null } catch { if ($_.Exception.Response) { break } }
+            Start-Sleep -Seconds 2
+          }
+          Get-Content wrangler.log -Tail 5
+      - name: Testkonto anlegen und Sperrprogramm installieren
+        shell: powershell
+        run: |
+          $pw = ConvertTo-SecureString 'Test-Passwort-123!' -AsPlainText -Force
+          New-LocalUser -Name Ludwig -Password $pw | Out-Null
+          Add-LocalGroupMember -SID S-1-5-32-545 -Member Ludwig
+          powershell -ExecutionPolicy Bypass -File laptop/install.ps1 -ServerUrl http://127.0.0.1:8787 -DeviceToken geraet-test-token-1234567890 -ChildAccount Ludwig
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+      - name: Prüfen, ob das Programm als SYSTEM läuft und den Server erreicht
+        shell: powershell
+        run: |
+          Start-Sleep -Seconds 30
+          Get-ScheduledTask -TaskName Medienzeit | Format-List TaskName, State
+          $p = Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" | Where-Object { $_.CommandLine -like '*Medienzeit\agent.ps1*' }
+          $owner = Invoke-CimMethod -InputObject $p -MethodName GetOwner
+          Write-Host "Prozess läuft als: $($owner.Domain)\$($owner.User)"
+          Get-Content C:\ProgramData\Medienzeit\agent.log -Encoding UTF8
+          $state = Invoke-RestMethod http://127.0.0.1:8787/e/eltern-test-token-1234567890/api/state
+          Write-Host "Server sieht den Laptop: $($state.device | ConvertTo-Json -Compress)"
+          $log = Get-Content C:\ProgramData\Medienzeit\agent.log -Raw -Encoding UTF8
+          if ($owner.User -ne 'SYSTEM') { throw 'Läuft nicht als SYSTEM' }
+          if (-not $state.device -or -not $state.device.online) { throw 'Server hat keine Anfrage vom Laptop bekommen' }
+          if ($log -notmatch 'Status: gesperrt') { throw 'Kein Status im Protokoll' }
+          if ($log -match 'Fehler:') { throw 'Fehler im Protokoll' }
+          powershell -ExecutionPolicy Bypass -File "C:\Program Files\Medienzeit\agent.ps1" -Check
+          powershell -ExecutionPolicy Bypass -File "C:\Program Files\Medienzeit\agent.ps1" -Sessions
+      - name: Neustart der Aufgabe nach Absturz
+        shell: powershell
+        run: |
+          Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" | Where-Object { $_.CommandLine -like '*Medienzeit\agent.ps1*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
+          Write-Host "Prozess beendet, warte bis zu 2,5 Minuten auf Neustart ..."
+          $ok = $false
+          for ($i = 0; $i -lt 30; $i++) {
+            Start-Sleep -Seconds 5
+            if (Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" | Where-Object { $_.CommandLine -like '*Medienzeit\agent.ps1*' }) { $ok = $true; break }
+          }
+          if (-not $ok) { throw 'Aufgabe wurde nicht neu gestartet' }
+          Write-Host "Neu gestartet nach etwa $(($i + 1) * 5) Sekunden."
+      - name: Deinstallieren
+        shell: powershell
+        run: |
+          powershell -ExecutionPolicy Bypass -File laptop/uninstall.ps1 -RemoveData
+          if (Get-ScheduledTask -TaskName Medienzeit -ErrorAction SilentlyContinue) { throw 'Aufgabe noch da' }

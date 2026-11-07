@@ -4,7 +4,7 @@ Kleine Familien-App, die Ludwigs Medien-Vertrag automatisch durchsetzt.
 
 - **Eltern-Ansicht** (Handy): Strafen per Klick eintragen, Zeit verlängern, Klausuren eintragen, Protokoll, Einstellungen.
 - **Ludwig-Ansicht**: Status mit Countdown, Checkliste abhaken, offene Strafen, Klausuren, Wochenplan, Protokoll.
-- **Laptop-Programm**: Windows-Dienst, der Ludwig abmeldet, wenn er nicht darf.
+- **Laptop-Programm**: PowerShell-Skript, das als SYSTEM läuft und Ludwig abmeldet, wenn er nicht darf.
 
 Die App läuft kostenlos auf Cloudflare (Workers + D1). Bei jedem Push auf `main` wird automatisch veröffentlicht.
 
@@ -94,11 +94,11 @@ In der Eltern-Ansicht **Einstellungen → Ferien und Feiertage** öffnen. Vorbel
 
 ### 8. Laptop einrichten: alle Befehle zum Kopieren
 
-**Vorbereitung:** Im Repo auf **Releases → Draft a new release** klicken, als Tag `v1.0.0` eintragen und auf **Publish release** klicken. Die Action „Laptop-Programm bauen“ hängt nach etwa 5 Minuten `medienzeit-laptop.zip` an das Release. Diese Datei auf dem Laptop mit dem **Admin-Konto** in den Ordner *Downloads* herunterladen.
+Das Sperrprogramm ist ein **PowerShell-Skript**, das Windows über die Aufgabenplanung als SYSTEM startet. Es gibt keine eigene .exe, Windows startet nur seine eigene PowerShell. Deshalb wird es von Virenschutzprogrammen wie AVG praktisch nie blockiert. Ein Release oder eine Zip braucht es nicht mehr, die Befehle laden alles direkt von GitHub.
 
 **So geht's:**
 
-- Auf dem Laptop mit dem Admin-Konto angemeldet bleiben.
+- Auf dem Laptop mit dem **Admin-Konto** anmelden.
 - **Windows-Taste + X** drücken und dann **„Terminal (Administrator)“** bzw. **„Windows PowerShell (Administrator)“** wählen. Die Frage „Änderungen zulassen?“ mit **Ja** beantworten.
 - Die Befehle **der Reihe nach** kopieren: Kasten markieren, mit Rechtsklick ins blaue/schwarze Fenster einfügen und Enter drücken.
 - **Das Fenster bis zum Schluss offen lassen**, weil sich die Befehle die Angaben aus Schritt 8.1 merken.
@@ -113,7 +113,11 @@ $Server = "https://medienzeit.DEINE-SUBDOMAIN.workers.dev"
 $Token  = "HIER-DAS-DEVICE_TOKEN-EINFÜGEN"
 ```
 
-`$Kind` ist der Windows-Kontoname von Ludwig. Wer unsicher ist, lässt sich alle Konten anzeigen:
+- `$Kind` ist der Windows-Kontoname von Ludwig.
+- `$Server` ist der vordere Teil eures Eltern-Links bis einschließlich `.workers.dev`, ohne Schrägstrich am Ende.
+- `$Token` ist das Gerät-Token aus Schritt 2.
+
+Wer unsicher ist, lässt sich alle Konten anzeigen:
 
 ```powershell
 Get-LocalUser | Format-Table Name, Enabled, FullName
@@ -121,14 +125,45 @@ Get-LocalUser | Format-Table Name, Enabled, FullName
 
 Hat Ludwig ein Microsoft-Konto, steht hier meist eine Kurzform seiner E-Mail-Adresse, z. B. `ludwi`. Genau diesen Namen bei `$Kind` eintragen und die Zeile `$Kind = …` nochmal ausführen.
 
-#### 8.2 Zip entpacken
+Kontrolle, ob alles gesetzt ist (es müssen drei Zeilen erscheinen):
 
 ```powershell
-$Ordner = "$env:USERPROFILE\Downloads\medienzeit-laptop"
-Expand-Archive -Path "$env:USERPROFILE\Downloads\medienzeit-laptop.zip" -DestinationPath $Ordner -Force
-Get-ChildItem $Ordner | Unblock-File
-Set-Location $Ordner
+$Kind; $Server; $Token
 ```
+
+#### 8.1b Alte Reste aufräumen (nur falls es schon einen Versuch gab)
+
+Wer vorher schon die .exe-Version oder einen Teil der Schritte gemacht hat, räumt hiermit alles Halbfertige weg. Die Angaben aus 8.1 (`$Kind`, `$Server`, `$Token`) bleiben erhalten. Rote Meldungen wie „nicht gefunden“ sind dabei normal.
+
+```powershell
+Set-Location $env:USERPROFILE
+& sc.exe failure MedienzeitAgent reset= 0 actions= '""' 2>$null | Out-Null
+& sc.exe stop MedienzeitAgent 2>$null | Out-Null
+& sc.exe delete MedienzeitAgent 2>$null | Out-Null
+Remove-Item "HKLM:\SYSTEM\CurrentControlSet\Control\SafeBoot\Minimal\MedienzeitAgent", "HKLM:\SYSTEM\CurrentControlSet\Control\SafeBoot\Network\MedienzeitAgent" -Recurse -Force -ErrorAction SilentlyContinue
+Unregister-ScheduledTask -TaskName Medienzeit -Confirm:$false -ErrorAction SilentlyContinue
+Start-Sleep -Seconds 3
+Remove-Item "C:\Program Files\Medienzeit" -Recurse -Force -ErrorAction SilentlyContinue
+Remove-Item "C:\ProgramData\Medienzeit\state.json" -Force -ErrorAction SilentlyContinue
+Remove-Item "$env:USERPROFILE\Downloads\medienzeit-laptop", "$env:USERPROFILE\Downloads\medienzeit-laptop.zip" -Recurse -Force -ErrorAction SilentlyContinue
+Write-Host "Aufgeräumt. Deine Angaben sind noch da:" -ForegroundColor Green
+$Kind; $Server; $Token
+```
+
+Am Ende müssen deine drei Angaben erscheinen. Fehlen sie, weil das Fenster zwischendurch zu war, die Zeilen aus 8.1 nochmal einfügen.
+
+#### 8.2 Dateien herunterladen
+
+```powershell
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+$Ordner = "$env:USERPROFILE\Downloads\medienzeit-laptop"
+New-Item -ItemType Directory -Path $Ordner -Force | Out-Null
+foreach ($f in 'agent.ps1', 'install.ps1', 'uninstall.ps1') { Invoke-WebRequest -UseBasicParsing -Uri "https://raw.githubusercontent.com/hollatzleif/medienzeit/main/laptop/$f" -OutFile "$Ordner\$f" }
+Set-Location $Ordner
+Get-ChildItem $Ordner | Format-Table Name, Length
+```
+
+Es müssen drei Dateien erscheinen: `agent.ps1`, `install.ps1` und `uninstall.ps1`.
 
 #### 8.3 Ludwig zum Standard-Benutzer machen
 
@@ -141,116 +176,27 @@ Add-LocalGroupMember -SID S-1-5-32-545 -Member $Kind -ErrorAction SilentlyContin
 
 #### 8.4 Sperrprogramm installieren
 
+Eine vorher installierte .exe-Version wird dabei automatisch entfernt.
+
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\install.ps1 -ServerUrl $Server -DeviceToken $Token -ChildAccount $Kind
 ```
 
-**Erscheint der Fehler „Join-Path: Das Argument kann nicht an den Parameter "Path" gebunden werden …“**, stammt die Zip noch aus Release `v1.0.0`. Dann stattdessen diesen Befehl nehmen:
+Am Ende muss grün **„Sperrprogramm läuft.“** stehen. Danach prüfen:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\install.ps1 -ServerUrl $Server -DeviceToken $Token -ChildAccount $Kind -ExePath "$env:USERPROFILE\Downloads\medienzeit-laptop\Medienzeit.Agent.exe"
+powershell -ExecutionPolicy Bypass -File "C:\Program Files\Medienzeit\agent.ps1" -Check
 ```
 
-Kommt danach „Medienzeit.Agent.exe nicht gefunden“, zeigt dieser Befehl, wo die Datei beim Entpacken gelandet ist:
+Hier müssen „Kind-Konto ist Standardbenutzer.“, „Aufgabe 'Medienzeit': Running“ und „Server ok.“ stehen, dazu der Plan für die nächsten Stunden. In der Eltern-Ansicht steht unter „Laptop“ dann **verbunden**, und im Protokoll erscheint „Sperrprogramm gestartet“.
+
+**Wenn etwas hakt**, zeigt dieser Block alles Wichtige. Ausgabe abfotografieren und weitergeben:
 
 ```powershell
-Get-ChildItem "$env:USERPROFILE\Downloads\medienzeit-laptop" -Recurse | Select-Object FullName
+Get-ScheduledTask -TaskName Medienzeit | Format-List TaskName, State
+Get-ScheduledTaskInfo -TaskName Medienzeit | Format-List LastRunTime, LastTaskResult
+Get-Content C:\ProgramData\Medienzeit\agent.log -Tail 30 -Encoding UTF8
 ```
-
-**Erscheint „Start-Service: Der Dienst … kann nicht gestartet werden“**, zeigt dieser Block, woran es liegt. Alles markieren, einfügen, Enter drücken, die Ausgabe abfotografieren und weitergeben:
-
-```powershell
-Write-Host "=== Protokoll ===" -ForegroundColor Cyan
-Get-Content C:\ProgramData\Medienzeit\agent.log -Tail 25 -ErrorAction SilentlyContinue
-Write-Host "=== Windows-Ereignisse ===" -ForegroundColor Cyan
-Get-WinEvent -LogName Application -MaxEvents 30 | Where-Object { $_.ProviderName -match '\.NET|Application Error|Medienzeit' } | Select-Object -First 3 | Format-List TimeCreated, ProviderName, Message
-Get-WinEvent -LogName System -MaxEvents 30 | Where-Object { $_.ProviderName -eq 'Service Control Manager' } | Select-Object -First 3 | Format-List TimeCreated, Message
-Write-Host "=== Check ===" -ForegroundColor Cyan
-& 'C:\Program Files\Medienzeit\Medienzeit.Agent.exe' --check
-```
-
-**Steht dort beim Check „Zugriff verweigert“**, blockiert meist ein Windows-Schutz das Programm. Dieser Block zeigt, welcher:
-
-```powershell
-Write-Host "=== Datei und Rechte ===" -ForegroundColor Cyan
-Get-Item 'C:\Program Files\Medienzeit\Medienzeit.Agent.exe' | Format-List FullName, Length
-icacls 'C:\Program Files\Medienzeit\Medienzeit.Agent.exe'
-Write-Host "=== Virenschutz ===" -ForegroundColor Cyan
-Get-CimInstance -Namespace root/SecurityCenter2 -ClassName AntiVirusProduct | Select-Object displayName
-Write-Host "=== Intelligente App-Steuerung (0 = aus, 1 = an, 2 = Testphase) ===" -ForegroundColor Cyan
-(Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\CI\Policy' -ErrorAction SilentlyContinue).VerifiedAndReputablePolicyState
-Write-Host "=== Von Defender blockiert? ===" -ForegroundColor Cyan
-Get-MpThreatDetection -ErrorAction SilentlyContinue | Select-Object -First 3 | Format-List InitialDetectionTime, Resources, ActionSuccess
-Write-Host "=== Code-Integrität ===" -ForegroundColor Cyan
-Get-WinEvent -LogName 'Microsoft-Windows-CodeIntegrity/Operational' -MaxEvents 3 -ErrorAction SilentlyContinue | Format-List TimeCreated, Message
-```
-
-**Ist ein zusätzlicher Virenschutz installiert (z. B. AVG, Avast, Norton)**, blockiert meist dieser das Programm, weil es nicht digital signiert ist. Dann von Hand im Virenschutz:
-
-1. Den Virenschutz öffnen (Symbol unten rechts neben der Uhr).
-2. Bei AVG/Avast **Menü (☰) → Einstellungen → Allgemein → Ausnahmen → Ausnahme hinzufügen** und `C:\Program Files\Medienzeit\*` eintragen. Bei anderen Programmen heißt das „Ausnahmen“ oder „Ausschlüsse“.
-3. Unter **Quarantäne** nachsehen, ob dort `Medienzeit.Agent.exe` liegt. Falls ja: **Wiederherstellen** und als Ausnahme hinzufügen.
-
-Danach den Dienst starten und prüfen:
-
-```powershell
-Start-Service MedienzeitAgent
-Start-Sleep -Seconds 8
-Get-Service MedienzeitAgent | Format-List Status, StartType
-& 'C:\Program Files\Medienzeit\Medienzeit.Agent.exe' --check
-```
-
-**Hilft die Ausnahme nicht**, zeigt dieser Block genauer, wer blockiert. Er startet das Programm einmal aus dem Download-Ordner und einmal aus dem Programmordner und zeigt die Rechte:
-
-```powershell
-Write-Host "=== Bin ich Administrator (erhöht)? ===" -ForegroundColor Cyan
-whoami /groups | findstr /i "S-1-5-32-544 S-1-16-12288"
-Write-Host "=== Test 1: Programm aus dem Download-Ordner ===" -ForegroundColor Cyan
-& "$env:USERPROFILE\Downloads\medienzeit-laptop\Medienzeit.Agent.exe" --check
-Write-Host "=== Test 2: Programm aus C:\Program Files ===" -ForegroundColor Cyan
-& 'C:\Program Files\Medienzeit\Medienzeit.Agent.exe' --check
-Write-Host "=== Rechte ===" -ForegroundColor Cyan
-icacls 'C:\Program Files\Medienzeit'
-icacls 'C:\Program Files\Medienzeit\Medienzeit.Agent.exe'
-Write-Host "=== Dateigröße (sollte ca. 70 MB sein) ===" -ForegroundColor Cyan
-(Get-Item 'C:\Program Files\Medienzeit\Medienzeit.Agent.exe').Length / 1MB
-```
-
-**Gegenprobe mit ausgeschaltetem Virenschutz** (wenn beide Tests „Zugriff verweigert“ zeigen): In AVG mit Rechtsklick auf das Symbol neben der Uhr den Schutz **für 10 Minuten ausschalten**. Dann diesen Block einfügen:
-
-```powershell
-& 'C:\Program Files\Medienzeit\Medienzeit.Agent.exe' --check
-Start-Service MedienzeitAgent
-Start-Sleep -Seconds 8
-Get-Service MedienzeitAgent | Format-List Status
-```
-
-- **Klappt es jetzt:** AVG ist schuld. In AVG unter **Menü (☰) → Einstellungen → Allgemein → Blockierte und zugelassene Apps → App zulassen** die Datei `C:\Program Files\Medienzeit\Medienzeit.Agent.exe` auswählen. Das ist eine andere Liste als „Ausnahmen“. Danach den Schutz wieder einschalten und den Block nochmal einfügen.
-- **Klappt es immer noch nicht:** Die genaue Fehlermeldung abfotografieren.
-
-**Wenn es mit AVG gar nicht klappt: AVG entfernen.** Der eingebaute Windows Defender schützt danach automatisch weiter. Zuerst die App-Liste öffnen, dort **AVG Antivirus → Deinstallieren** wählen und den Anweisungen folgen:
-
-```powershell
-start ms-settings:appsfeatures
-```
-
-Danach den Laptop **neu starten**, wieder mit dem Admin-Konto ein Terminal (Administrator) öffnen und prüfen. Defender muss bei beiden Werten `True` zeigen, danach wird der Dienst gestartet:
-
-```powershell
-Get-MpComputerStatus | Format-List AntivirusEnabled, RealTimeProtectionEnabled
-& 'C:\Program Files\Medienzeit\Medienzeit.Agent.exe' --check
-Start-Service MedienzeitAgent
-Start-Sleep -Seconds 8
-Get-Service MedienzeitAgent | Format-List Status
-```
-
-Danach prüfen. Es muss „Kind-Konto ist Standardbenutzer“ und „Server ok“ erscheinen:
-
-```powershell
-& 'C:\Program Files\Medienzeit\Medienzeit.Agent.exe' --check
-```
-
-In der Eltern-Ansicht steht unter „Laptop“ dann **verbunden**, und im Protokoll erscheint „Sperrprogramm gestartet“.
 
 #### 8.5 Gastkonto und eingebautes Administrator-Konto abschalten
 
@@ -358,7 +304,7 @@ Bei Ludwig unter **Bildschirmzeit** feste Zeiten großzügiger als in der App ei
 #### 8.11 Abschlusskontrolle
 
 ```powershell
-Get-Service MedienzeitAgent | Format-List Status, StartType
+Get-ScheduledTask -TaskName Medienzeit | Format-List State
 Get-LocalUser | Format-Table Name, Enabled
 Get-LocalGroupMember -SID S-1-5-32-544
 Confirm-SecureBootUEFI
@@ -367,22 +313,72 @@ Get-BitLockerVolume -MountPoint "C:" | Format-List VolumeStatus, ProtectionStatu
 
 Soll-Ergebnis:
 
-- Dienst `Running` / `Automatic`.
+- Aufgabe `Running`.
 - Gast und eingebauter Administrator auf `False`.
 - Ludwig steht nicht bei den Administratoren.
 - Secure Boot `True`.
 - BitLocker `On`. Bei Windows Home kann hier ein Fehler erscheinen, dann zählt die Einstellungsseite aus 8.8.
 
-Danach mit **Ludwigs Konto** anmelden und das Prüfprotokoll in [`agent/README-Agent.md`](agent/README-Agent.md) durchgehen, vor allem die Umgehungsversuche.
+#### 8.12 Abgesicherten Modus versperren (empfohlen)
 
-> Hinweis: Diese Befehle sind Standard-Windows-Befehle. Auf einem echten Laptop konnte ich sie nicht ausprobieren. Erscheint eine rote Fehlermeldung, die oben nicht erklärt ist: Meldung abfotografieren und nicht weitermachen, sondern erst klären.
+Im abgesicherten Modus startet Windows die Aufgabenplanung nicht, das Sperrprogramm läuft dort also nicht. In den abgesicherten Modus kommt man ohne Admin-Passwort über **Umschalt + Neustart** am Anmeldebildschirm, also über die Windows-Wiederherstellungsumgebung. Dieser Befehl schaltet die Wiederherstellungsumgebung ab:
+
+```powershell
+reagentc /disable
+reagentc /info
+```
+
+Bei „Status der Windows RE“ muss danach **Disabled** bzw. **Deaktiviert** stehen.
+
+Wichtig zu wissen: Damit fehlen auch die automatischen Reparaturwerkzeuge, falls Windows einmal nicht mehr startet. Ein Admin schaltet sie bei Bedarf so wieder ein:
+
+```powershell
+reagentc /enable
+```
+
+> Hinweis: Alle Befehle in Schritt 8 sind Standard-Windows-Befehle. Auf einem echten Laptop konnte ich sie nicht ausprobieren. Erscheint eine rote Fehlermeldung, die oben nicht erklärt ist: Meldung abfotografieren und nicht weitermachen, sondern erst klären.
 
 ### 9. Testen
 
 1. **Ludwig-Link:** Checkliste abhaken. Ab der frühesten Startzeit (Standard 12:00) bzw. 11:30 an freien Tagen zeigt der Status „Darf bis …“.
 2. **Eltern-Link:** Unter **Strafe** z. B. „Türen knallen – 30 Min.“ antippen. Die Vorschau zeigt „Laptop gesperrt bis …“. Bestätigen. Innerhalb von etwa 20 Sekunden erscheint auf dem Laptop die Meldung, nach 60 Sekunden folgt die Abmeldung.
 3. In der **Übersicht** bei der Strafe auf **Verringern** tippen, „ganz aufheben“ wählen und die PIN eingeben. Ludwig darf wieder.
-4. Das **Prüfprotokoll** in `agent/README-Agent.md` durchgehen (Umgehungsversuche, WLAN aus, abgesicherter Modus).
+4. Das Prüfprotokoll in Schritt 10 durchgehen.
+
+### 10. Prüfprotokoll am Laptop
+
+Am besten zu zweit: eine Person am Handy in der Eltern-Ansicht, eine am Laptop mit Ludwigs Konto. Jeden Punkt abhaken.
+
+**Grundfunktion**
+
+- [ ] Mit dem Admin-Konto zeigt `-Check` (Schritt 8.4) „Server ok.“ und den Plan.
+- [ ] Diese Zeile zeigt Ludwigs Sitzung mit „<-- Kind-Konto“. Bei gesperrtem Bildschirm (Win+L) steht dort „gesperrt“.
+
+  ```powershell
+  powershell -ExecutionPolicy Bypass -File "C:\Program Files\Medienzeit\agent.ps1" -Sessions
+  ```
+
+**Sperren**
+
+- [ ] Strafe „Sofort“ eintragen, während Ludwig angemeldet ist und darf. Innerhalb von etwa 20 Sekunden erscheint die Meldung mit Grund und „in 60 Sekunden abgemeldet“. Nach 60 Sekunden folgt die Abmeldung.
+- [ ] Während der Sperre neu anmelden. Die Meldung erscheint sofort, nach 15 Sekunden folgt die Abmeldung.
+- [ ] Unter „Mehr Zeit → Zeit an einem Tag ändern“ das Ende auf in 7 Minuten setzen. 5 Minuten vorher erscheint die Vorwarnung, zum Ende folgt die Abmeldung.
+- [ ] Das Admin-Konto wird nie abgemeldet.
+
+**Umgehungsversuche (als Ludwig angemeldet)**
+
+- [ ] Im Task-Manager unter „Details“ `powershell.exe` des Benutzers SYSTEM beenden: „Zugriff verweigert“, oder der Prozess ist für Ludwig gar nicht sichtbar.
+- [ ] In der Eingabeaufforderung `schtasks /End /TN Medienzeit` und `schtasks /Change /TN Medienzeit /Disable` eingeben: beides „Zugriff verweigert“.
+- [ ] `C:\ProgramData\Medienzeit` lässt sich nicht öffnen, in `C:\Program Files\Medienzeit` lässt sich nichts ändern oder löschen.
+- [ ] Die Zeitzone ändern (Einstellungen → Zeit) hat keine Wirkung.
+- [ ] WLAN ausschalten: Der Plan gilt bis zu 4 Stunden weiter. Kurz vor Ablauf kommt eine Vorwarnung, danach ist der Laptop gesperrt. Nach dem Einschalten steht im Protokoll „Laptop lief ohne Verbindung …“. Zum schnelleren Testen die Offline-Dauer in den Einstellungen vorübergehend auf 10 Minuten stellen.
+- [ ] Am Anmeldebildschirm **Umschalt + Neustart**: Es darf kein Menü „Problembehandlung“ mit abgesichertem Modus mehr erscheinen (Schritt 8.12).
+- [ ] Energiesparmodus während der Medienzeit, Aufwecken nach dem Ende: Die Abmeldung folgt kurz nach dem Aufwecken.
+
+**Pausenregel** (zum Testen in den Einstellungen z. B. 10 Min. aktiv / 5 Min. Pause einstellen)
+
+- [ ] Nach der eingestellten aktiven Zeit kommt erst die Vorwarnung, dann die Abmeldung, und der Status zeigt „Pause bis …“.
+- [ ] Gesperrter Bildschirm (Win+L) zählt nicht als aktiv.
 
 ---
 
@@ -473,10 +469,11 @@ worker/            Cloudflare Worker (TypeScript)
 public/            Oberfläche (HTML/CSS/JS ohne Build-Schritt)
 migrations/        Datenbank-Schema und Startdaten
 tests/             Tests der Zeitberechnung (Vitest)
-agent/             Windows-Dienst (.NET 8) + Tests
-scripts/           install.ps1, uninstall.ps1, Hilfsskript für den Deploy
+laptop/            Sperrprogramm für Windows (PowerShell-Skript) + Installation + Tests
+agent/             ältere .exe-Version (.NET 8), wird von manchen Virenschutzprogrammen blockiert
+scripts/           Hilfsskript für den Deploy
 docs/              Schnittstelle Laptop ↔ Server
-.github/workflows/ Deploy (Server) und Laptop-Programm bauen
+.github/workflows/ Deploy (Server), Tests des Laptop-Skripts, .exe-Version bauen
 ```
 
 ### Lokal entwickeln
@@ -496,10 +493,10 @@ Dann eine Datei `.dev.vars` anlegen (steht in `.gitignore`) mit `LUDWIG_TOKEN=�
 npx wrangler dev
 ```
 
-Laptop-Programm:
+Laptop-Skript (läuft auch unter Linux mit `pwsh`):
 
 ```bash
-dotnet test agent/Medienzeit.sln
+pwsh -NoProfile -File laptop/tests/agent.tests.ps1
 ```
 
 ---
@@ -508,11 +505,13 @@ dotnet test agent/Medienzeit.sln
 
 | Was | Wie Leif es prüft |
 | --- | --- |
-| Windows-Dienst auf echter Hardware: Meldungen, Abmeldung, Sperrstatus, SafeBoot, Neustart nach Absturz | Prüfprotokoll in `agent/README-Agent.md` |
-| `install.ps1` / `uninstall.ps1` wirklich ausgeführt (nur auf Syntax geprüft) | Schritt 8.4; danach `sc qc MedienzeitAgent` und `--check` |
+| Sperrprogramm auf echter Hardware: Meldungen, Abmeldung, Sperrstatus, Neustart der Aufgabe | Prüfprotokoll (Schritt 10) |
+| `install.ps1` / `uninstall.ps1` wirklich ausgeführt (nur auf Syntax geprüft, Logik unter Linux getestet) | Schritt 8.4: grünes „Sperrprogramm läuft.“ und `-Check` |
+| Ob Windows PowerShell 5.1 das Skript genau so ausführt wie PowerShell 7 beim Testen | Schritt 8.4 und Prüfprotokoll |
 | Befehle zum Absichern (Gastkonto, Admins, Secure Boot, BitLocker) | Schritt 8.11 Abschlusskontrolle |
-| Umgehungsversuche als Ludwig (Dienst stoppen, Task-Manager, Zeitzone, WLAN aus) | Prüfprotokoll, Abschnitt „Umgehungsversuche“ |
+| Umgehungsversuche als Ludwig (Aufgabe beenden, Task-Manager, Zeitzone, WLAN aus, abgesicherter Modus) | Prüfprotokoll, Abschnitt „Umgehungsversuche“ |
 | Energiesparmodus / Ruhezustand mitten in der Medienzeit | Prüfprotokoll |
+| Ob `reagentc /disable` wirklich jeden Weg in den abgesicherten Modus versperrt | Prüfprotokoll: Umschalt + Neustart |
 | Echter Deploy auf Cloudflare inkl. Limits | Schritt 5 + 9; im Cloudflare-Dashboard unter *Workers → medienzeit → Metrics* CPU-Zeit ansehen |
 | Ferientermine Thurgau 2027/28 (aus öffentlichen Kalendern, nicht amtlich bestätigt) | Schritt 7 |
 | Darstellung auf echten iPhones (nur im Browser-Simulator geprüft) | Links auf dem Handy öffnen |

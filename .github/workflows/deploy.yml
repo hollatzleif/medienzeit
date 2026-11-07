@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths-ignore:
       - 'agent/**'
+      - 'laptop/**'
       - '**.md'
   workflow_dispatch:
 
