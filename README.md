@@ -200,6 +200,22 @@ Get-Service MedienzeitAgent | Format-List Status, StartType
 & 'C:\Program Files\Medienzeit\Medienzeit.Agent.exe' --check
 ```
 
+**Hilft die Ausnahme nicht**, zeigt dieser Block genauer, wer blockiert. Er startet das Programm einmal aus dem Download-Ordner und einmal aus dem Programmordner und zeigt die Rechte:
+
+```powershell
+Write-Host "=== Bin ich Administrator (erhöht)? ===" -ForegroundColor Cyan
+whoami /groups | findstr /i "S-1-5-32-544 S-1-16-12288"
+Write-Host "=== Test 1: Programm aus dem Download-Ordner ===" -ForegroundColor Cyan
+& "$env:USERPROFILE\Downloads\medienzeit-laptop\Medienzeit.Agent.exe" --check
+Write-Host "=== Test 2: Programm aus C:\Program Files ===" -ForegroundColor Cyan
+& 'C:\Program Files\Medienzeit\Medienzeit.Agent.exe' --check
+Write-Host "=== Rechte ===" -ForegroundColor Cyan
+icacls 'C:\Program Files\Medienzeit'
+icacls 'C:\Program Files\Medienzeit\Medienzeit.Agent.exe'
+Write-Host "=== Dateigröße (sollte ca. 70 MB sein) ===" -ForegroundColor Cyan
+(Get-Item 'C:\Program Files\Medienzeit\Medienzeit.Agent.exe').Length / 1MB
+```
+
 Danach prüfen. Es muss „Kind-Konto ist Standardbenutzer“ und „Server ok“ erscheinen:
 
 ```powershell
