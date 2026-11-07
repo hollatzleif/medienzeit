@@ -143,6 +143,8 @@ Set-Location $env:USERPROFILE
 Remove-Item "HKLM:\SYSTEM\CurrentControlSet\Control\SafeBoot\Minimal\MedienzeitAgent", "HKLM:\SYSTEM\CurrentControlSet\Control\SafeBoot\Network\MedienzeitAgent" -Recurse -Force -ErrorAction SilentlyContinue
 Unregister-ScheduledTask -TaskName Medienzeit -Confirm:$false -ErrorAction SilentlyContinue
 Start-Sleep -Seconds 3
+& icacls.exe "C:\Program Files\Medienzeit" /reset /T /C /Q 2>$null | Out-Null
+& icacls.exe "C:\ProgramData\Medienzeit" /reset /T /C /Q 2>$null | Out-Null
 Remove-Item "C:\Program Files\Medienzeit" -Recurse -Force -ErrorAction SilentlyContinue
 Remove-Item "C:\ProgramData\Medienzeit\state.json" -Force -ErrorAction SilentlyContinue
 Remove-Item "$env:USERPROFILE\Downloads\medienzeit-laptop", "$env:USERPROFILE\Downloads\medienzeit-laptop.zip" -Recurse -Force -ErrorAction SilentlyContinue

@@ -129,12 +129,25 @@ if (-not $keepConfig) {
 
 # --- 6. Zugriffsrechte (sprachunabhängig über SIDs) ---
 Write-Step "Setze Zugriffsrechte ..."
-& icacls.exe $DataDir /reset /T /C /Q | Out-Null
-& icacls.exe $DataDir /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' /T /C /Q | Out-Null
-if ($LASTEXITCODE -ne 0) { Fail "Zugriffsrechte für $DataDir konnten nicht gesetzt werden." }
-& icacls.exe $ProgramDir /reset /T /C /Q | Out-Null
-& icacls.exe $ProgramDir /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-32-545:(OI)(CI)RX' /T /C /Q | Out-Null
-if ($LASTEXITCODE -ne 0) { Fail "Zugriffsrechte für $ProgramDir konnten nicht gesetzt werden." }
+# Nur der Ordner selbst bekommt feste Rechte (ohne /T!). Die Dateien darin erben sie danach.
+# (Früher wurden die Rechte mit /T auch direkt auf die Dateien gesetzt – dabei verloren die Dateien
+#  alle Rechte, sogar für Administratoren: "Zugriff verweigert".)
+function Set-FolderAcl($dir, [string[]]$grants) {
+    & icacls.exe $dir /reset /T /C /Q | Out-Null
+    & icacls.exe $dir /inheritance:r /grant:r @grants /C /Q | Out-Null
+    if ($LASTEXITCODE -ne 0) { Fail "Zugriffsrechte für $dir konnten nicht gesetzt werden." }
+    if (Get-ChildItem $dir -Force) {
+        & icacls.exe (Join-Path $dir '*') /reset /T /C /Q | Out-Null
+    }
+}
+# Datenordner: nur SYSTEM (S-1-5-18) und Administratoren (S-1-5-32-544)
+Set-FolderAcl $DataDir @('*S-1-5-18:(OI)(CI)F', '*S-1-5-32-544:(OI)(CI)F')
+# Programmordner: SYSTEM + Administratoren voll, Benutzer (S-1-5-32-545) nur lesen/ausführen
+Set-FolderAcl $ProgramDir @('*S-1-5-18:(OI)(CI)F', '*S-1-5-32-544:(OI)(CI)F', '*S-1-5-32-545:(OI)(CI)RX')
+# Gegenprobe: Administratoren müssen die Dateien lesen können
+foreach ($f in Get-ChildItem $ProgramDir, $DataDir -File -Force) {
+    try { [IO.File]::OpenRead($f.FullName).Dispose() } catch { Fail "Datei nicht lesbar nach dem Setzen der Rechte: $($f.FullName)" }
+}
 
 # --- 7. Aufgabe anlegen ---
 Write-Step "Lege Aufgabe '$TaskName' an (läuft als SYSTEM) ..."
