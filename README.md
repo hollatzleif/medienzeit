@@ -192,6 +192,21 @@ powershell -ExecutionPolicy Bypass -File "C:\Program Files\Medienzeit\agent.ps1"
 
 Hier müssen „Kind-Konto ist Standardbenutzer.“, „Aufgabe 'Medienzeit': Running“ und „Server ok.“ stehen, dazu der Plan für die nächsten Stunden. In der Eltern-Ansicht steht unter „Laptop“ dann **verbunden**, und im Protokoll erscheint „Sperrprogramm gestartet“.
 
+**Meldet der Laptop „Keine Verbindung zum Server“**, zeigt dieser Block den Grund. Mit dem Admin-Konto im Terminal (Administrator) einfügen:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File "C:\Program Files\Medienzeit\agent.ps1" -Check
+Get-Content C:\ProgramData\Medienzeit\agent.log -Tail 10 -Encoding UTF8
+```
+
+- Steht dort **„404“** oder **„Nicht gefunden“**: Das Gerät-Token auf dem Laptop passt nicht zum GitHub-Secret `DEVICE_TOKEN`. Mit diesem Befehl das Token vom Laptop anzeigen, auf GitHub bei `DEVICE_TOKEN` eintragen und **Actions → „Deploy (Server)“ → Run workflow** starten. Nach etwa 2 Minuten klappt die Verbindung.
+
+  ```powershell
+  (Get-Content C:\ProgramData\Medienzeit\config.json -Raw | ConvertFrom-Json).deviceToken
+  ```
+
+- Steht dort **„Remotename konnte nicht aufgelöst werden“**: Die Server-Adresse ist falsch. Dann 8.1 mit der richtigen Adresse wiederholen und 8.4 erneut ausführen.
+
 **Wenn etwas hakt**, zeigt dieser Block alles Wichtige. Ausgabe abfotografieren und weitergeben:
 
 ```powershell
