@@ -102,6 +102,23 @@ jobs:
           if ($log -match 'Fehler:') { throw 'Fehler im Protokoll' }
           powershell -ExecutionPolicy Bypass -File "C:\Program Files\Medienzeit\agent.ps1" -Check
           powershell -ExecutionPolicy Bypass -File "C:\Program Files\Medienzeit\agent.ps1" -Sessions
+      - name: Fehlersuche (nur wenn etwas schiefging)
+        if: failure()
+        shell: powershell
+        run: |
+          Get-ScheduledTaskInfo -TaskName Medienzeit -ErrorAction SilentlyContinue | Format-List LastRunTime, LastTaskResult, NumberOfMissedRuns
+          Write-Host "--- agent.log"
+          Get-Content C:\ProgramData\Medienzeit\agent.log -Encoding UTF8 -ErrorAction SilentlyContinue
+          Write-Host "--- Aufgabenplanung"
+          Get-WinEvent -LogName 'Microsoft-Windows-TaskScheduler/Operational' -MaxEvents 15 -ErrorAction SilentlyContinue | Format-List TimeCreated, Id, Message
+          Write-Host "--- Direkter Start als Admin (20 s)"
+          $p = Start-Process -FilePath powershell.exe -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File','"C:\Program Files\Medienzeit\agent.ps1"' -RedirectStandardError err.txt -RedirectStandardOutput out.txt -PassThru -WindowStyle Hidden
+          Start-Sleep -Seconds 20
+          if (-not $p.HasExited) { Stop-Process -Id $p.Id -Force; Write-Host "lief nach 20 s noch" } else { Write-Host "beendet mit $($p.ExitCode)" }
+          Get-Content out.txt, err.txt -ErrorAction SilentlyContinue
+          Get-Content C:\ProgramData\Medienzeit\agent.log -Encoding UTF8 -ErrorAction SilentlyContinue
+          Get-Content wrangler.log -Tail 20 -ErrorAction SilentlyContinue
+
       - name: Neustart der Aufgabe nach Absturz
         shell: powershell
         run: |

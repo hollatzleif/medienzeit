@@ -419,7 +419,20 @@ public static class MedienzeitWts
 }
 '@
 
-if (-not ('MedienzeitWts' -as [type])) { Add-Type -TypeDefinition $wtsCode -Language CSharp }
+try {
+    if (-not (Test-Path $script:Dir)) { New-Item -ItemType Directory -Path $script:Dir -Force | Out-Null }
+} catch { }
+if (-not ($Check -or $Sessions)) { Write-Log "Start als $([Security.Principal.WindowsIdentity]::GetCurrent().Name), PowerShell $($PSVersionTable.PSVersion)" }
+try {
+    if (-not ('MedienzeitWts' -as [type])) { Add-Type -TypeDefinition $wtsCode -Language CSharp }
+} catch {
+    Write-Log "FEHLER beim Laden der Windows-Funktionen: $($_.Exception.Message)"
+    exit 2
+}
+trap {
+    Write-Log "Unerwarteter Fehler: $($_.Exception.Message) (Zeile $($_.InvocationInfo.ScriptLineNumber))"
+    exit 3
+}
 
 function Get-Tick { return [double][MedienzeitWts]::GetTickCount64() }
 function Get-Wall { return [double][DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() }
