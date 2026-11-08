@@ -299,7 +299,8 @@ export async function deleteExam(env: Env, l: Loaded, person: string, body: { id
   return text;
 }
 
-export async function ludwigCheck(env: Env, l: Loaded, body: { itemId: number; checked: boolean }) {
+/** Checkliste abhaken – von Ludwig (person = null) oder von einem Erwachsenen (ohne PIN). */
+export async function checkItem(env: Env, l: Loaded, body: { itemId: number; checked: boolean }, person: string | null = null) {
   const e = l.engine;
   const item = e.applicableItems(e.today).find((i) => i.id === Number(body.itemId));
   if (!item) throw new UserError('Diesen Punkt gibt es heute nicht.');
@@ -308,9 +309,20 @@ export async function ludwigCheck(env: Env, l: Loaded, body: { itemId: number; c
   const ev: ChecklistEvent = { date: e.today, itemId: item.id, checked, ts: e.now };
   const after = new Engine({ ...l.input, checklistEvents: [...l.input.checklistEvents, ev] });
   const isDone = after.checklistDoneNow();
-  const stmts = [env.DB.prepare("INSERT INTO checklist_events (date, item_id, checked, ts, source) VALUES (?, ?, ?, ?, 'ludwig')").bind(e.today, item.id, checked ? 1 : 0, e.now)];
-  if (!wasDone && isDone) stmts.push(logStmt(env, e.now, 'Ludwig', 'checkliste', 'Checkliste erledigt'));
-  if (wasDone && !isDone) stmts.push(logStmt(env, e.now, 'Ludwig', 'checkliste', `Checkliste wieder offen („${item.label}“ abgewählt)`));
+  const who = person ?? 'Ludwig';
+  const source = person ? `eltern:${person}` : 'ludwig';
+  const stmts = [
+    env.DB.prepare('INSERT INTO checklist_events (date, item_id, checked, ts, source) VALUES (?, ?, ?, ?, ?)').bind(e.today, item.id, checked ? 1 : 0, e.now, source),
+  ];
+  if (person) {
+    // Erwachsene: jede Änderung protokollieren
+    const what = checked ? `Checkliste: „${item.label}“ abgehakt` : `Checkliste: „${item.label}“ wieder offen`;
+    const extra = !wasDone && isDone ? ' – Checkliste erledigt' : wasDone && !isDone ? ' – Checkliste wieder offen' : '';
+    stmts.push(logStmt(env, e.now, who, 'checkliste', what + extra));
+  } else {
+    if (!wasDone && isDone) stmts.push(logStmt(env, e.now, who, 'checkliste', 'Checkliste erledigt'));
+    if (wasDone && !isDone) stmts.push(logStmt(env, e.now, who, 'checkliste', `Checkliste wieder offen („${item.label}“ abgewählt)`));
+  }
   await env.DB.batch(stmts);
 }
 

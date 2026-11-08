@@ -2,7 +2,7 @@
 
 Kleine Familien-App, die Ludwigs Medien-Vertrag automatisch durchsetzt.
 
-- **Eltern-Ansicht** (Handy): Strafen per Klick eintragen, Zeit verlängern, Klausuren eintragen, Protokoll, Einstellungen.
+- **Eltern-Ansicht** (Handy): Strafen per Klick eintragen, Checkliste abhaken, Zeit verlängern, Klausuren eintragen, Protokoll, Einstellungen.
 - **Ludwig-Ansicht**: Status mit Countdown, Checkliste abhaken, offene Strafen, Klausuren, Wochenplan, Protokoll.
 - **Laptop-Programm**: PowerShell-Skript, das als SYSTEM läuft und Ludwig abmeldet, wenn er nicht darf.
 
@@ -414,6 +414,7 @@ Personen hinzufügen oder entfernen geht genauso.
 | --- | --- |
 | Strafe eintragen | Strafe verringern oder aufheben |
 | Klausur/Test eintragen oder löschen | Zeit verlängern oder früher starten (z. B. Guthaben einlösen) |
+| Checkliste für Ludwig abhaken oder abwählen | |
 | | Sonderfreigabe jetzt |
 | | Früher Schluss an einem Tag (Sperrzeit verlängern) |
 | | Einstellungen |

@@ -7,7 +7,7 @@ import {
   changeDay,
   createPenalty,
   deleteExam,
-  ludwigCheck,
+  checkItem,
   planPenalty,
   reducePenalty,
   saveSettings,
@@ -102,7 +102,7 @@ async function route(req: Request, env: Env): Promise<Response> {
   if (!isParent) {
     if (action === 'state' && req.method === 'GET') return json(await ludwigState(env, l));
     if (action === 'check' && req.method === 'POST') {
-      await ludwigCheck(env, l, (await readBody(req)) as never);
+      await checkItem(env, l, (await readBody(req)) as never);
       return json({ ok: true, state: await ludwigState(env, await load(env, now)) });
     }
     return notFound();
@@ -130,6 +130,9 @@ async function route(req: Request, env: Env): Promise<Response> {
       if (action === 'preview') return json({ ok: true, text: planPenalty(l, cat, mode, person).text });
       return done(await createPenalty(env, l, cat, mode, person));
     }
+    case 'check':
+      await checkItem(env, l, body as never, person);
+      return done('Checkliste aktualisiert');
     case 'exam':
       return done(await addExam(env, l, person, body as never));
     case 'exam-delete':
