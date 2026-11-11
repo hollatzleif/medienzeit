@@ -11,6 +11,11 @@ function render() {
           <div class="box">${i.checked ? '✓' : ''}</div><div class="lbl">${esc(i.label)}</div>
         </div>`).join('') + (cl.done ? '<p class="muted small" style="margin-top:10px">Alles erledigt – super!</p>' : '')
     : '<p class="muted">Heute steht nichts auf der Liste.</p>';
+  if (cl.ratingNeeded || cl.rating) {
+    $('#checklist').insertAdjacentHTML('beforeend', cl.rating
+      ? `<p class="small" style="margin-top:10px">Bewertung heute Morgen: <b>${cl.rating.score}/10</b> (${esc(cl.rating.person)})</p>`
+      : '<p class="muted small" style="margin-top:10px">Noch keine Bewertung von heute Morgen – ein Erwachsener muss dein Benehmen bewerten, dann geht es los.</p>');
+  }
   $('#penalties').innerHTML = renderPenalties(state, false);
   $('#exams').innerHTML = renderExams(state, false);
   $('#week').innerHTML = renderWeek(state);

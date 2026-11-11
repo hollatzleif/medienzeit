@@ -151,3 +151,6 @@ input[type=checkbox] { width: auto; min-height: 0; }
 
 summary { cursor: pointer; padding: 6px 0; font-size: 18px; }
 details[open] summary { margin-bottom: 10px; }
+
+.score-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
+.score-grid .chip { width: 100%; font-size: 20px; }

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { Engine } from '../worker/engine/engine';
 import { hm, localDate, zonedToUtc } from '../worker/engine/time';
 import { at, checkAll, engine, input, nextAllowedLocal, penalty, uncheckAll } from './helpers';
+import { DEFAULT_SETTINGS, ratingPenaltyMinutes } from '../worker/engine/types';
 
 // Kalender: Mo 09.11.2026, Di 10.11., Fr 13.11., Sa 14.11., So 15.11.
 const MO = '2026-11-09';
@@ -331,5 +332,55 @@ describe('Weitere Regeln', () => {
     e.plan();
     e.openPenalties();
     expect(performance.now() - t0).toBeLessThan(200);
+  });
+});
+
+describe('Bewertung des morgendlichen Benehmens', () => {
+  const withRating = { ...DEFAULT_SETTINGS, ratingRequired: true };
+  const rating = (date: string, time: string, score = 9) => ({ date, ts: at(date, time), score, person: 'Mama' });
+
+  it('Checkliste erledigt, aber noch nicht bewertet → wartet auf Bewertung', () => {
+    const e = engine(at(MO, '13:30'), { settings: withRating, checklistEvents: checkAll(MO, '13:00') });
+    expect(e.status().kind).toBe('checklist');
+    expect(e.status().text).toBe('Wartet auf die Bewertung des Morgens durch einen Erwachsenen');
+    expect(e.checklistView()).toMatchObject({ done: true, ratingNeeded: true, rating: null });
+  });
+
+  it('Bewertung 9/10 → Medienzeit beginnt ab der Bewertung', () => {
+    const e = engine(at(MO, '13:31'), { settings: withRating, checklistEvents: checkAll(MO, '13:00'), ratings: [rating(MO, '13:30')] });
+    expect(e.status().kind).toBe('allowed');
+    expect(e.checklistView().rating).toMatchObject({ score: 9, person: 'Mama' });
+  });
+
+  it('Bewertung 6/10 mit 30 Min. „Sofort“ → Medien 30 Min. später', () => {
+    const p = penalty(at(MO, '13:30'), ratingPenaltyMinutes(withRating, 6), 'Morgendliches Benehmen: 6/10', 'Mama');
+    const e = engine(at(MO, '13:31'), {
+      settings: withRating,
+      checklistEvents: checkAll(MO, '13:00'),
+      ratings: [rating(MO, '13:30', 6)],
+      penalties: [p],
+    });
+    expect(e.status().text).toBe('Gesperrt bis 14:00 – Morgendliches Benehmen: 6/10 (Mama)');
+  });
+
+  it('Bewertung am Vormittag vor der Checkliste zählt auch', () => {
+    const e = engine(at(MO, '12:30'), { settings: withRating, checklistEvents: checkAll(MO, '12:15'), ratings: [rating(MO, '08:00')] });
+    expect(e.status().kind).toBe('allowed');
+  });
+
+  it('Abzüge nach Punkten', () => {
+    expect([10, 8, 7, 6, 5, 3, 2, 1].map((x) => ratingPenaltyMinutes(withRating, x))).toEqual([0, 0, 30, 30, 60, 60, 120, 120]);
+  });
+
+  it('Pflicht gilt erst ab „ratingFrom“', () => {
+    const e = engine(at(MO, '13:30'), { settings: { ...withRating, ratingFrom: DI }, checklistEvents: checkAll(MO, '13:00') });
+    expect(e.status().kind).toBe('allowed');
+    const di = engine(at(DI, '13:30'), { settings: { ...withRating, ratingFrom: DI }, checklistEvents: checkAll(DI, '13:00') });
+    expect(di.status().kind).toBe('checklist');
+  });
+
+  it('Offline-Plan: künftige Tage brauchen Checkliste und Bewertung', () => {
+    const e = engine(at(MO, '19:00'), { settings: withRating, checklistEvents: checkAll(MO, '13:00'), ratings: [rating(MO, '13:00')] });
+    expect(e.plan().filter((s) => s.allowed)).toHaveLength(1);
   });
 });

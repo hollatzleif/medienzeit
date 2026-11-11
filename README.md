@@ -414,7 +414,7 @@ Personen hinzufügen oder entfernen geht genauso.
 | --- | --- |
 | Strafe eintragen | Strafe verringern oder aufheben |
 | Klausur/Test eintragen oder löschen | Zeit verlängern oder früher starten (z. B. Guthaben einlösen) |
-| Checkliste für Ludwig abhaken oder abwählen | |
+| Checkliste für Ludwig abhaken oder abwählen | Morgendliches Benehmen bewerten (1–10) |
 | | Sonderfreigabe jetzt |
 | | Früher Schluss an einem Tag (Sperrzeit verlängern) |
 | | Einstellungen |
@@ -449,7 +449,7 @@ Die Befehle dazu stehen in Schritt 8. Hier zum Abhaken:
 Es gibt **keinen Cron-Job**. Bei jeder Anfrage (Laptop alle ~20 s, Ansichten alle 30 s) wird der Zustand aus den gespeicherten Daten neu berechnet (`worker/engine/engine.ts`):
 
 1. **Zeitfenster je Tag:** An Schultagen gilt die früheste Startzeit (Schulschluss, je Wochentag einstellbar), an freien Tagen 11:30. Ende ist 20:00, wenn morgen Schule ist, sonst 21:30. Danach werden Tagesänderungen und „Heute früher Schluss“ in zeitlicher Reihenfolge angewendet.
-2. **Checkliste:** Medien gibt es nur, solange alle heute geltenden Punkte abgehakt sind. „Lernstunde“ erscheint, wenn eine Klausur in den nächsten 7 Tagen oder ein Test in den nächsten 3 Tagen ansteht. „Schulranzen“ erscheint, wenn morgen Schule ist. Wird eine Klausur nachmittags eingetragen, gilt die Lernstunde ab dann, nicht rückwirkend.
+2. **Checkliste und Bewertung:** Medien gibt es nur, solange alle heute geltenden Punkte abgehakt sind **und** ein Erwachsener das morgendliche Benehmen bewertet hat (1–10, mit PIN, einmal pro Tag). 8–10 = kein Abzug, 6–7 = 30 Min., 3–5 = 1 Std., 1–2 = 2 Std. Den Abzug wählt die bewertende Person als „Sofort“ oder „Heute früher Schluss“. Pflicht und Minuten lassen sich in den Einstellungen ändern. „Lernstunde“ erscheint, wenn eine Klausur in den nächsten 7 Tagen oder ein Test in den nächsten 3 Tagen ansteht. „Schulranzen“ erscheint, wenn morgen Schule ist. Wird eine Klausur nachmittags eingetragen, gilt die Lernstunde ab dann, nicht rückwirkend.
 3. **Pausenregel:** Nach 3 Stunden aktiver Nutzung (angemeldet und entsperrt) ohne 30 Minuten Pause folgen 30 Minuten Zwangspause. Kürzere Unterbrechungen zählen nicht als aktiv, setzen den Zähler aber auch nicht zurück.
 4. **Strafen-Warteschlange:** Strafen werden nacheinander abgesessen, in der Reihenfolge des Eintragens. Restminuten laufen **nur** ab, wenn Ludwig ohne die Strafe gerade dürfte, also nicht nachts, nicht bei offener Checkliste und nicht während einer Pause oder Sonderfreigabe. Was heute nicht reicht, läuft morgen am Anfang weiter.
 5. **„Heute früher Schluss“:** Die heutige Endzeit rückt nach vorne. Ist weniger Zeit übrig, als die Strafe dauert, ist sofort Schluss, und der Rest wird morgen am Anfang abgezogen. „Übrige Zeit“ zählt ab der frühesten Startzeit, falls die Medienzeit noch nicht begonnen hat.

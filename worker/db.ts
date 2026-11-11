@@ -113,13 +113,14 @@ export async function load(env: Env, now: number): Promise<Loaded> {
   const loadFrom = Math.min(from, dayStart(today));
   const loadFromDate = localDate(loadFrom);
 
-  const [evRows, exRows, dcRows, grRows, actRows, adjRows] = await db.batch([
+  const [evRows, exRows, dcRows, grRows, actRows, adjRows, ratRows] = await db.batch([
     db.prepare('SELECT date, item_id, checked, ts FROM checklist_events WHERE date >= ? ORDER BY ts').bind(loadFromDate),
     db.prepare('SELECT * FROM exams WHERE date >= ? ORDER BY date').bind(addDays(fromDate, -1)),
     db.prepare('SELECT * FROM day_changes WHERE date >= ? ORDER BY ts').bind(loadFromDate),
     db.prepare('SELECT * FROM grants WHERE to_ts >= ? ORDER BY from_ts').bind(loadFrom),
     db.prepare('SELECT from_ts, to_ts FROM activity WHERE to_ts >= ? ORDER BY from_ts').bind(loadFrom - 12 * 3_600_000),
     db.prepare('SELECT * FROM adjustments WHERE ts >= ? ORDER BY ts').bind(checkpoint ? checkpoint.ts : 0),
+    db.prepare('SELECT date, ts, score, person FROM ratings WHERE date >= ? ORDER BY ts').bind(loadFromDate),
   ]);
 
   const allItems: ChecklistItem[] = (itemRows.results as Row[]).map((r) => ({
@@ -167,6 +168,7 @@ export async function load(env: Env, now: number): Promise<Loaded> {
     ),
     activity: (actRows.results as Row[]).map((r) => ({ from: n(r.from_ts), to: n(r.to_ts) })),
     checkpoint,
+    ratings: (ratRows.results as Row[]).map((r) => ({ date: s(r.date), ts: n(r.ts), score: n(r.score), person: s(r.person) })),
   };
 
   const catalog: CatalogEntry[] = (catRows.results as Row[]).map((r) => ({

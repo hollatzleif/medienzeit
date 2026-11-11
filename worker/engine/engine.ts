@@ -31,6 +31,7 @@ import type {
   Holiday,
   Kind,
   Penalty,
+  Rating,
   Settings,
 } from './types';
 
@@ -48,6 +49,8 @@ export interface EngineInput {
   grants: Grant[];
   activity: Activity[];
   checkpoint?: Checkpoint | null;
+  /** Bewertungen des morgendlichen Benehmens */
+  ratings?: Rating[];
 }
 
 /**
@@ -240,20 +243,34 @@ export class Engine {
   }
 
   /** Zeiträume eines Tages, in denen alle Punkte abgehakt waren / sind / angenommen werden. */
+  /** Muss an diesem Tag ein Erwachsener das Benehmen bewerten, bevor die Medienzeit beginnt? */
+  ratingNeeded(date: string): boolean {
+    return !!this.s.ratingRequired && (!this.s.ratingFrom || date >= this.s.ratingFrom);
+  }
+
+  ratingOf(date: string): Rating | null {
+    const list = (this.inp.ratings ?? []).filter((r) => r.date === date).sort((a, b) => a.ts - b.ts);
+    return list[0] ?? null;
+  }
+
   checklistIv(date: string, mode: Mode): Iv[] {
     return this.cached(`cl:${date}:${mode}`, () => {
       const ds = dayStart(date);
       const de = dayEnd(date);
-      if (!this.applicableItems(date).length) return [[ds, de]] as Iv[];
+      const needRating = this.ratingNeeded(date);
+      if (!this.applicableItems(date).length && !needRating) return [[ds, de]] as Iv[];
       if (date > this.today) return mode === 'pessimistic' ? [] : ([[ds, de]] as Iv[]);
-      // Zeitpunkte, an denen sich etwas ändert: Abhaken/Abwählen und neu eingetragene Klausuren/Tests
+      const rating = needRating ? this.ratingOf(date) : null;
+      // Zeitpunkte, an denen sich etwas ändert: Abhaken/Abwählen, neu eingetragene Klausuren/Tests, Bewertung
       type Pt = { t: number; ev?: ChecklistEvent };
       const pts: Pt[] = [
         ...this.inp.checklistEvents.filter((e) => e.date === date).map((ev) => ({ t: ev.ts, ev })),
         ...this.inp.exams.filter((x) => x.ts !== undefined && x.ts > ds && x.ts < de).map((x) => ({ t: x.ts as number })),
+        ...(rating ? [{ t: rating.ts }] : []),
       ].sort((a, b) => a.t - b.t);
       const state = new Map<number, boolean>();
-      const doneAt = (t: number) => this.applicableItems(date, t).every((i) => state.get(i.id));
+      const doneAt = (t: number) =>
+        this.applicableItems(date, t).every((i) => state.get(i.id)) && (!needRating || (rating !== null && rating.ts <= t));
       const out: Iv[] = [];
       let open: number | null = doneAt(ds) ? ds : null;
       for (const pt of pts) {
@@ -490,7 +507,10 @@ export class Engine {
         return `Pause bis ${fmtWhen(seg.to, this.now)}`;
       case 'checklist': {
         const open = this.openPenaltyMinutes();
-        return open > 0 ? `Checkliste noch offen – danach noch ${fmtMinutes(open)} Strafe` : 'Checkliste noch offen';
+        const d = localDate(Math.max(this.now, seg.from));
+        const waiting = d === this.today && this.checklistDoneNow() && this.ratingNeeded(d) && !this.ratingOf(d);
+        const base = waiting ? 'Wartet auf die Bewertung des Morgens durch einen Erwachsenen' : 'Checkliste noch offen';
+        return open > 0 ? `${base} – danach noch ${fmtMinutes(open)} Strafe` : base;
       }
       case 'penalty': {
         const p = this.penaltyById(seg.penaltyId);
@@ -503,7 +523,9 @@ export class Engine {
         if (!next) return 'Sperrzeit';
         const d = localDate(next);
         const needsList =
-          this.applicableItems(d).length > 0 && (d > this.today || !this.checklistDoneNow()) && !contains(this.grants(), next);
+          (this.applicableItems(d).length > 0 || this.ratingNeeded(d)) &&
+          (d > this.today || !this.checklistDoneNow() || (this.ratingNeeded(d) && !this.ratingOf(d))) &&
+          !contains(this.grants(), next);
         return `Sperrzeit – wieder ab ${fmtWhen(next, this.now)}${needsList ? ' (mit erledigter Checkliste)' : ''}`;
       }
     }
@@ -609,7 +631,14 @@ export class Engine {
   checklistView() {
     const st = this.checklistState(this.today);
     const items = this.applicableItems(this.today).map((i) => ({ id: i.id, label: i.label, checked: !!st.get(i.id) }));
-    return { date: this.today, items, done: items.every((i) => i.checked) };
+    const r = this.ratingOf(this.today);
+    return {
+      date: this.today,
+      items,
+      done: items.every((i) => i.checked),
+      ratingNeeded: this.ratingNeeded(this.today),
+      rating: r ? { score: r.score, person: r.person, ts: r.ts } : null,
+    };
   }
 
   upcomingDays(n = 7): DayInfo[] {

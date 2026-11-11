@@ -16,6 +16,12 @@ export interface Settings {
   examDays: number;
   /** Lernstunde, wenn ein Test in so vielen Tagen ansteht */
   testDays: number;
+  /** Bewertung des morgendlichen Benehmens ist Pflicht, bevor die Medienzeit beginnt */
+  ratingRequired: boolean;
+  /** ab diesem Tag gilt die Pflicht (YYYY-MM-DD; leer = immer) */
+  ratingFrom: string;
+  /** Abzug in Minuten: 6–7 Punkte, 3–5 Punkte, 1–2 Punkte (8–10 = kein Abzug) */
+  ratingMinutes: { ok: number; bad: number; worst: number };
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -30,7 +36,25 @@ export const DEFAULT_SETTINGS: Settings = {
   warnMinutes: 5,
   examDays: 7,
   testDays: 3,
+  ratingRequired: true,
+  ratingFrom: '',
+  ratingMinutes: { ok: 30, bad: 60, worst: 120 },
 };
+
+/** Abzug für eine Bewertung von 1–10 */
+export function ratingPenaltyMinutes(s: Settings, score: number): number {
+  if (score >= 8) return 0;
+  if (score >= 6) return s.ratingMinutes.ok;
+  if (score >= 3) return s.ratingMinutes.bad;
+  return s.ratingMinutes.worst;
+}
+
+export interface Rating {
+  date: string;
+  ts: number;
+  score: number;
+  person: string;
+}
 
 export interface Holiday {
   id?: number;

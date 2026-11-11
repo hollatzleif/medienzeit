@@ -9,6 +9,8 @@ import {
   deleteExam,
   checkItem,
   planPenalty,
+  planRating,
+  rateMorning,
   reducePenalty,
   saveSettings,
   verifyPin,
@@ -130,6 +132,10 @@ async function route(req: Request, env: Env): Promise<Response> {
       if (action === 'preview') return json({ ok: true, text: planPenalty(l, cat, mode, person).text });
       return done(await createPenalty(env, l, cat, mode, person));
     }
+    case 'rating-preview': {
+      const r = planRating(l, body.score, body.mode === 'B' ? 'B' : 'A', person);
+      return json({ ok: true, text: r.text, minutes: r.minutes });
+    }
     case 'check':
       await checkItem(env, l, body as never, person);
       return done('Checkliste aktualisiert');
@@ -150,6 +156,8 @@ async function route(req: Request, env: Env): Promise<Response> {
       return done(await changeDay(env, l, person, body as never));
     case 'grant':
       return done(await addGrant(env, l, person, body as never));
+    case 'rate':
+      return done(await rateMorning(env, l, person, body as never));
     case 'settings':
       return done(await saveSettings(env, l, person, body));
   }

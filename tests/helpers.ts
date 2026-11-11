@@ -30,7 +30,7 @@ export function penalty(ts: number, minutes: number, label = 'Rumschreien', pers
 export function input(now: number, over: Partial<EngineInput> = {}): EngineInput {
   return {
     now,
-    settings: DEFAULT_SETTINGS,
+    settings: { ...DEFAULT_SETTINGS, ratingRequired: false },
     holidays: [],
     items: ITEMS,
     checklistEvents: [],

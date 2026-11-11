@@ -91,6 +91,7 @@ function renderAll() {
           <div class="box">${i.checked ? '✓' : ''}</div><div class="lbl">${esc(i.label)}</div>
         </div>`).join('') + '<p class="muted small" style="margin-top:8px">Antippen zum Abhaken – wird mit deinem Namen protokolliert.</p>'
     : '<p class="muted">Heute keine Punkte.</p>';
+  renderRating();
   $('#week').innerHTML = renderWeek(state);
   $('#exams').innerHTML = renderExams(state, true);
   renderCatalog();
@@ -209,11 +210,83 @@ $('#checklist').addEventListener('click', async (ev) => {
     const r = await api('check', { itemId: Number(row.dataset.item), checked, person: me });
     state = r.state;
     renderAll();
+    const c = state.checklist;
+    if (checked && c.done && c.ratingNeeded && !c.rating) openRating();
   } catch (e) {
     toast(e.message, true);
     refresh();
   }
 });
+
+// ---------- Bewertung des Morgens ----------
+
+function ratingMinutes(score) {
+  const m = state.settings.ratingMinutes || { ok: 30, bad: 60, worst: 120 };
+  if (score >= 8) return 0;
+  if (score >= 6) return m.ok;
+  if (score >= 3) return m.bad;
+  return m.worst;
+}
+
+function renderRating() {
+  const c = state.checklist;
+  $('#rating-card').classList.toggle('hidden', !c.ratingNeeded && !c.rating);
+  if (c.rating) {
+    const min = ratingMinutes(c.rating.score);
+    $('#rating').innerHTML = `<p><b>${c.rating.score}/10</b> – bewertet von ${esc(c.rating.person)} um ${hm(c.rating.ts)}${min ? ` · ${fmtMin(min)} Abzug` : ' · kein Abzug'}</p>`;
+  } else {
+    $('#rating').innerHTML = `<p class="muted small">Noch nicht bewertet. Ludwigs Medienzeit beginnt erst, wenn ein Erwachsener bewertet hat.</p>
+      <button id="rating-open">Jetzt bewerten</button>`;
+  }
+}
+
+$('#rating').addEventListener('click', (e) => { if (e.target.id === 'rating-open') openRating(); });
+
+function openRating() {
+  if (!needPerson()) return;
+  let score = 0;
+  let rmode = 'A';
+  const m = modal(`
+    <h2>Morgendliches Benehmen</h2>
+    <p class="muted small">Wie hat sich Ludwig heute bis jetzt benommen? 10 = super.<br>Abzug: 8–10 keiner · 6–7 ${fmtMin(ratingMinutes(6))} · 3–5 ${fmtMin(ratingMinutes(3))} · 1–2 ${fmtMin(ratingMinutes(1))}</p>
+    <div class="score-grid">${[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => `<button class="chip" data-score="${n}">${n}</button>`).join('')}</div>
+    <div class="seg hidden" id="r-mode" style="margin-top:12px">
+      <button data-rmode="A" class="on">Sofort</button>
+      <button data-rmode="B">Heute früher Schluss</button>
+    </div>
+    <div class="effect" id="r-effect"></div>
+    <div class="row"><button class="secondary" id="r-cancel">Abbrechen</button><button id="r-go" disabled>Bewerten (PIN)</button></div>`);
+  const update = async () => {
+    if (!score) return;
+    $('#r-mode', m.el).classList.toggle('hidden', ratingMinutes(score) === 0);
+    $('#r-effect', m.el).textContent = '…';
+    try {
+      const r = await api('rating-preview', { score, mode: rmode, person: me });
+      $('#r-effect', m.el).textContent = `${score}/10: ${r.text}`;
+      $('#r-go', m.el).disabled = false;
+    } catch (err) { $('#r-effect', m.el).textContent = err.message; }
+  };
+  m.el.addEventListener('click', async (e) => {
+    const b = e.target.closest('[data-score]');
+    if (b) {
+      score = Number(b.dataset.score);
+      m.el.querySelectorAll('[data-score]').forEach((x) => x.classList.toggle('on', x === b));
+      update();
+      return;
+    }
+    const mb = e.target.closest('[data-rmode]');
+    if (mb) {
+      rmode = mb.dataset.rmode;
+      m.el.querySelectorAll('[data-rmode]').forEach((x) => x.classList.toggle('on', x === mb));
+      update();
+    }
+  });
+  $('#r-cancel', m.el).onclick = m.close;
+  $('#r-go', m.el).onclick = async () => {
+    m.close();
+    await withPin('Morgen bewerten', 'rate', { score, mode: rmode });
+  };
+}
 
 // ---------- Mehr Zeit ----------
 
@@ -314,6 +387,13 @@ function renderSettings() {
         <div><label>Lerntage vor Klausur</label><input type="number" id="s-ex" value="${s.examDays}"></div>
         <div><label>Lerntage vor Test</label><input type="number" id="s-te" value="${s.testDays}"></div>
       </div>
+      <h3>Bewertung des Morgens</h3>
+      <label><input type="checkbox" id="s-rr" ${s.ratingRequired ? 'checked' : ''}> Pflicht: Medienzeit erst nach Bewertung durch einen Erwachsenen</label>
+      <div class="grid2">
+        <div><label>Abzug bei 6–7 (Min.)</label><input type="number" id="s-r1" value="${(s.ratingMinutes || {}).ok ?? 30}"></div>
+        <div><label>Abzug bei 3–5 (Min.)</label><input type="number" id="s-r2" value="${(s.ratingMinutes || {}).bad ?? 60}"></div>
+        <div><label>Abzug bei 1–2 (Min.)</label><input type="number" id="s-r3" value="${(s.ratingMinutes || {}).worst ?? 120}"></div>
+      </div>
       <p></p><button data-save="settings">Zeiten speichern (PIN)</button>
     </section>
 
@@ -396,6 +476,8 @@ $('#settings').addEventListener('click', async (e) => {
       offlineMinutes: Number($('#s-off').value),
       examDays: Number($('#s-ex').value),
       testDays: Number($('#s-te').value),
+      ratingRequired: $('#s-rr').checked,
+      ratingMinutes: { ok: Number($('#s-r1').value), bad: Number($('#s-r2').value), worst: Number($('#s-r3').value) },
     } };
   } else if (section === 'holidays') {
     body = { holidays: [...document.querySelectorAll('[data-row="hol"]')].map((r) => ({ label: val(r, 'label').value, from: val(r, 'from').value, to: val(r, 'to').value })) };

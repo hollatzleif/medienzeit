@@ -4,7 +4,8 @@ import { addLog, logStmt, type CatalogEntry, type Env, type Loaded } from './db'
 import { Engine } from './engine/engine';
 import { contains } from './engine/intervals';
 import { addDays, dateLabel, fmtMinutes, fmtWhen, hm, hmToMin, minToHm } from './engine/time';
-import type { ChecklistEvent, ItemCondition, Penalty, Settings } from './engine/types';
+import { ratingPenaltyMinutes, type ChecklistEvent, type ItemCondition, type Penalty, type Rating, type Settings } from './engine/types';
+import type { EngineInput } from './engine/engine';
 
 export class UserError extends Error {}
 
@@ -18,7 +19,7 @@ export interface PenaltyPlan {
   text: string;
 }
 
-export function planPenalty(l: Loaded, cat: CatalogEntry, modeIn: 'A' | 'B', person: string): PenaltyPlan {
+export function planPenalty(l: Loaded, cat: CatalogEntry, modeIn: 'A' | 'B', person: string, extra: Partial<EngineInput> = {}): PenaltyPlan {
   const e = l.engine;
   const now = e.now;
   const reset = cat.special === 'reset_checklist';
@@ -36,6 +37,7 @@ export function planPenalty(l: Loaded, cat: CatalogEntry, modeIn: 'A' | 'B', per
 
   const after = new Engine({
     ...l.input,
+    ...extra,
     penalties: [...l.input.penalties, penalty],
     checklistEvents: [...l.input.checklistEvents, ...resetEvents],
   });
@@ -75,6 +77,63 @@ export async function createPenalty(env: Env, l: Loaded, cat: CatalogEntry, mode
   ];
   await env.DB.batch(stmts);
   return plan.text;
+}
+
+// ---------- Bewertung des Morgens ----------
+
+function ratingCat(score: number, minutes: number): CatalogEntry {
+  return { id: 0, label: `Morgendliches Benehmen: ${score}/10`, logText: `Morgendliches Benehmen: ${score}/10`, minutes, special: null, hint: null, sort: 0 };
+}
+
+export function planRating(l: Loaded, scoreIn: unknown, mode: 'A' | 'B', person: string) {
+  const e = l.engine;
+  const score = Number(scoreIn);
+  if (!Number.isInteger(score) || score < 1 || score > 10) throw new UserError('Bitte eine Bewertung von 1 bis 10 wählen.');
+  const existing = e.ratingOf(e.today);
+  if (existing) throw new UserError(`Heute schon bewertet: ${existing.score}/10 von ${existing.person}.`);
+  const rating: Rating = { date: e.today, ts: e.now, score, person };
+  const ratings = [...(l.input.ratings ?? []), rating];
+  const minutes = ratingPenaltyMinutes(l.settings, score);
+  if (minutes > 0) {
+    const plan = planPenalty(l, ratingCat(score, minutes), mode, person, { ratings });
+    return { score, minutes, penalty: plan.penalty, text: `${fmtMinutes(minutes)} Abzug – ${plan.text}` };
+  }
+  const after = new Engine({ ...l.input, ratings });
+  const st = after.status();
+  let text: string;
+  if (st.allowed) text = 'kein Abzug – Medienzeit kann beginnen';
+  else if (!after.checklistDoneNow()) text = 'kein Abzug – Medienzeit beginnt, sobald die Checkliste erledigt ist';
+  else {
+    const next = after.nextAllowed('hopeful', e.now);
+    text = next ? `kein Abzug – Medien ab ${uhr(fmtWhen(next, e.now))}` : 'kein Abzug';
+  }
+  return { score, minutes: 0, penalty: null as Penalty | null, text };
+}
+
+export async function rateMorning(env: Env, l: Loaded, person: string, body: { score: number; mode: string }) {
+  const mode = body.mode === 'B' ? 'B' : 'A';
+  const r = planRating(l, body.score, mode, person);
+  const e = l.engine;
+  const stmts: D1PreparedStatement[] = [];
+  if (r.penalty) {
+    const p = r.penalty;
+    stmts.push(
+      env.DB.prepare(
+        'INSERT INTO penalties (ts, person, catalog_id, label, minutes, mode, date, cut, carry) VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?)',
+      ).bind(p.ts, p.person, p.label, p.minutes, p.mode, p.date, p.cut, p.carry),
+    );
+  }
+  stmts.push(
+    env.DB.prepare('INSERT INTO ratings (date, ts, person, score, minutes, mode) VALUES (?, ?, ?, ?, ?, ?)').bind(e.today, e.now, person, r.score, r.minutes, r.penalty ? mode : null),
+  );
+  const text = `Morgendliches Benehmen bewertet: ${r.score}/10 – ${r.text}`;
+  stmts.push(logStmt(env, e.now, person, 'bewertung', text, r.minutes || null));
+  try {
+    await env.DB.batch(stmts);
+  } catch {
+    throw new UserError('Heute wurde schon bewertet.');
+  }
+  return text;
 }
 
 // ---------- PIN ----------
@@ -197,6 +256,11 @@ export async function saveSettings(env: Env, l: Loaded, person: string, body: Re
       if (!Number.isInteger(x) || x < 1 || x > max) throw new UserError(`${name}: bitte eine Zahl zwischen 1 und ${max}.`);
       return x;
     };
+    const num0 = (v: unknown, name: string) => {
+      const x = Number(v);
+      if (!Number.isInteger(x) || x < 0 || x > 1440) throw new UserError(`${name}: bitte eine Zahl zwischen 0 und 1440.`);
+      return x;
+    };
     const clean: Settings = {
       earliestStart: Object.fromEntries(['1', '2', '3', '4', '5'].map((k) => [k, t(s.earliestStart?.[k], 'Früheste Startzeit')])),
       freeDayStart: t(s.freeDayStart, 'Start an freien Tagen'),
@@ -209,6 +273,13 @@ export async function saveSettings(env: Env, l: Loaded, person: string, body: Re
       warnMinutes: num(s.warnMinutes, 'Vorwarnung', 60),
       examDays: num(s.examDays, 'Lerntage vor Klausur', 30),
       testDays: num(s.testDays, 'Lerntage vor Test', 30),
+      ratingRequired: !!s.ratingRequired,
+      ratingFrom: l.settings.ratingFrom,
+      ratingMinutes: {
+        ok: num0(s.ratingMinutes?.ok, 'Abzug bei 6–7 Punkten'),
+        bad: num0(s.ratingMinutes?.bad, 'Abzug bei 3–5 Punkten'),
+        worst: num0(s.ratingMinutes?.worst, 'Abzug bei 1–2 Punkten'),
+      },
     };
     stmts.push(
       env.DB.prepare("INSERT INTO settings (key, value) VALUES ('main', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").bind(JSON.stringify(clean)),
