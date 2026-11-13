@@ -401,6 +401,18 @@ Am besten zu zweit: eine Person am Handy in der Eltern-Ansicht, eine am Laptop m
 
 ## Alltag
 
+### Laptop-Programm aktualisieren
+
+Wenn es eine neue Version des Sperrprogramms gibt: mit dem Admin-Konto ein **Terminal (Administrator)** öffnen und diese zwei Befehle einfügen. Die Konfiguration bleibt erhalten, die Frage „Behalten?“ mit Enter bestätigen.
+
+```powershell
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; $Ordner = "$env:USERPROFILE\Downloads\medienzeit-laptop"; New-Item -ItemType Directory -Path $Ordner -Force | Out-Null; foreach ($f in 'agent.ps1', 'install.ps1', 'uninstall.ps1') { Invoke-WebRequest -UseBasicParsing -Uri "https://raw.githubusercontent.com/hollatzleif/medienzeit/main/laptop/$f" -OutFile "$Ordner\$f" }; Set-Location $Ordner
+```
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\install.ps1
+```
+
 ### PIN ändern (z. B. wenn Ludwig eine mitbekommen hat)
 
 1. GitHub → Repo → **Settings → Secrets and variables → Actions** → `PINS` → **Update** → neue Zeile eintragen und speichern.
@@ -450,10 +462,12 @@ Es gibt **keinen Cron-Job**. Bei jeder Anfrage (Laptop alle ~20 s, Ansichten all
 
 1. **Zeitfenster je Tag:** An Schultagen gilt die früheste Startzeit (Schulschluss, je Wochentag einstellbar), an freien Tagen 11:30. Ende ist 20:00, wenn morgen Schule ist, sonst 21:30. Danach werden Tagesänderungen und „Heute früher Schluss“ in zeitlicher Reihenfolge angewendet.
 2. **Checkliste und Bewertung:** Medien gibt es nur, solange alle heute geltenden Punkte abgehakt sind **und** ein Erwachsener das morgendliche Benehmen bewertet hat (1–10, mit PIN, einmal pro Tag). 8–10 = kein Abzug, 6–7 = 30 Min., 3–5 = 1 Std., 1–2 = 2 Std. Den Abzug wählt die bewertende Person als „Sofort“ oder „Heute früher Schluss“. Pflicht und Minuten lassen sich in den Einstellungen ändern. „Lernstunde“ erscheint, wenn eine Klausur in den nächsten 7 Tagen oder ein Test in den nächsten 3 Tagen ansteht. „Schulranzen“ erscheint, wenn morgen Schule ist. Wird eine Klausur nachmittags eingetragen, gilt die Lernstunde ab dann, nicht rückwirkend.
-3. **Pausenregel:** Nach 3 Stunden aktiver Nutzung (angemeldet und entsperrt) ohne 30 Minuten Pause folgen 30 Minuten Zwangspause. Kürzere Unterbrechungen zählen nicht als aktiv, setzen den Zähler aber auch nicht zurück.
-4. **Strafen-Warteschlange:** Strafen werden nacheinander abgesessen, in der Reihenfolge des Eintragens. Restminuten laufen **nur** ab, wenn Ludwig ohne die Strafe gerade dürfte, also nicht nachts, nicht bei offener Checkliste und nicht während einer Pause oder Sonderfreigabe. Was heute nicht reicht, läuft morgen am Anfang weiter.
-5. **„Heute früher Schluss“:** Die heutige Endzeit rückt nach vorne. Ist weniger Zeit übrig, als die Strafe dauert, ist sofort Schluss, und der Rest wird morgen am Anfang abgezogen. „Übrige Zeit“ zählt ab der frühesten Startzeit, falls die Medienzeit noch nicht begonnen hat.
-6. **Sonderfreigabe:** gilt über alles hinweg, auch über Zeitplan, Checkliste, Strafe und Pause. Laufende Strafen pausieren so lange.
+3. **Tageskonto:** Ludwig darf Mo–Fr höchstens 3 Std. und Sa/So höchstens 5 Std. am Laptop sein, Ferientage unter der Woche zählen wie das Wochenende. Gezählt wird echte Nutzung (angemeldet und entsperrt), Zeit während einer Sonderfreigabe zählt nicht. Ist das Konto leer, ist der Laptop für den Rest des Tages gesperrt. Mit „Mehr Zeit → zusätzliche Laptop-Zeit“ lässt sich das Konto für einen Tag aufstocken. Werte in den Einstellungen änderbar (0 = keine Grenze).
+4. **Pausenregel:** Nach 3 Stunden aktiver Nutzung (angemeldet und entsperrt) ohne 30 Minuten Pause folgen 30 Minuten Zwangspause. Kürzere Unterbrechungen zählen nicht als aktiv, setzen den Zähler aber auch nicht zurück.
+5. **Strafen:** Standard ist **„Vom Tageskonto“**: Die Strafe wird von der heutigen Laptop-Zeit abgezogen. Reicht das Konto heute nicht, wird der Rest an den nächsten Tagen abgezogen. Wahlweise **„Sofort“** (Warteschlange, siehe unten) oder **„Heute früher Schluss“**.
+6. **Strafen-Warteschlange („Sofort“):** Strafen werden nacheinander abgesessen, in der Reihenfolge des Eintragens. Restminuten laufen **nur** ab, wenn Ludwig ohne die Strafe gerade dürfte, also nicht nachts, nicht bei offener Checkliste und nicht während einer Pause oder Sonderfreigabe. Was heute nicht reicht, läuft morgen am Anfang weiter.
+7. **„Heute früher Schluss“:** Die heutige Endzeit rückt nach vorne. Ist weniger Zeit übrig, als die Strafe dauert, ist sofort Schluss, und der Rest wird morgen am Anfang abgezogen. „Übrige Zeit“ zählt ab der frühesten Startzeit, falls die Medienzeit noch nicht begonnen hat.
+8. **Sonderfreigabe:** gilt über alles hinweg, auch über Zeitplan, Checkliste, Strafe und Pause. Laufende Strafen pausieren so lange.
 
 Damit die Rechnung kurz bleibt, wird zu jedem Tagesbeginn ein **Zwischenstand** gespeichert. Einstellungsänderungen wirken deshalb nie rückwirkend auf schon abgesessene Strafzeit.
 

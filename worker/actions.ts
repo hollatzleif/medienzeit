@@ -19,12 +19,17 @@ export interface PenaltyPlan {
   text: string;
 }
 
-export function planPenalty(l: Loaded, cat: CatalogEntry, modeIn: 'A' | 'B', person: string, extra: Partial<EngineInput> = {}): PenaltyPlan {
+export type Mode = 'A' | 'B' | 'C';
+export const parseMode = (v: unknown): Mode => (v === 'A' || v === 'B' ? v : 'C');
+
+export function planPenalty(l: Loaded, cat: CatalogEntry, modeIn: Mode, person: string, extra: Partial<EngineInput> = {}): PenaltyPlan {
   const e = l.engine;
   const now = e.now;
   const reset = cat.special === 'reset_checklist';
-  const mode = reset ? 'A' : modeIn;
-  const split = mode === 'B' ? e.modeBSplit(cat.minutes) : { cut: 0, carry: 0 };
+  const cSplit = modeIn === 'C' && !reset ? e.modeCSplit(cat.minutes) : null;
+  // ohne Tageskonto gibt es keinen Abzug vom Konto → Sofort
+  const mode: Mode = reset ? 'A' : modeIn === 'C' && !cSplit ? 'A' : modeIn;
+  const split = mode === 'B' ? e.modeBSplit(cat.minutes) : mode === 'C' && cSplit ? cSplit : { cut: 0, carry: 0 };
   const penalty: Penalty = { id: -1, ts: now, person, label: cat.label, minutes: cat.minutes, mode, date: e.today, ...split };
 
   const state = e.checklistState(e.today);
@@ -52,6 +57,12 @@ export function planPenalty(l: Loaded, cat: CatalogEntry, modeIn: 'A' | 'B', per
     if (inGrant) text = `Strafe läuft nach der Sonderfreigabe (${fmtMinutes(cat.minutes)})`;
     else if (kindBefore === 'allowed' || kindBefore === 'penalty') text = next ? `Laptop gesperrt bis ${uhr(fmtWhen(next, now))}` : 'Laptop gesperrt';
     else text = next ? `Medien erst ab ${uhr(fmtWhen(next, now))}` : `${fmtMinutes(cat.minutes)} Abzug von der nächsten Medienzeit`;
+  } else if (mode === 'C') {
+    const bv = after.budgetView();
+    const carry = split.carry ? `${fmtMinutes(split.carry)} werden von der Laptop-Zeit der nächsten Tage abgezogen` : '';
+    if (split.cut === 0) text = carry;
+    else if ((bv.leftMinutes ?? 0) <= 0) text = `Laptop-Zeit für heute aufgebraucht${carry ? `, ${carry}` : ''}`;
+    else text = `Laptop-Zeit heute um ${fmtMinutes(split.cut)} gekürzt – noch ${fmtMinutes(bv.leftMinutes ?? 0)} heute`;
   } else {
     const d = after.dayInfo(e.today);
     const carry = split.carry ? `, ${fmtMinutes(split.carry)} werden morgen am Anfang abgezogen` : '';
@@ -63,7 +74,7 @@ export function planPenalty(l: Loaded, cat: CatalogEntry, modeIn: 'A' | 'B', per
   return { penalty, resetEvents, text };
 }
 
-export async function createPenalty(env: Env, l: Loaded, cat: CatalogEntry, mode: 'A' | 'B', person: string) {
+export async function createPenalty(env: Env, l: Loaded, cat: CatalogEntry, mode: Mode, person: string) {
   const plan = planPenalty(l, cat, mode, person);
   const p = plan.penalty;
   const stmts = [
@@ -85,7 +96,7 @@ function ratingCat(score: number, minutes: number): CatalogEntry {
   return { id: 0, label: `Morgendliches Benehmen: ${score}/10`, logText: `Morgendliches Benehmen: ${score}/10`, minutes, special: null, hint: null, sort: 0 };
 }
 
-export function planRating(l: Loaded, scoreIn: unknown, mode: 'A' | 'B', person: string) {
+export function planRating(l: Loaded, scoreIn: unknown, mode: Mode, person: string) {
   const e = l.engine;
   const score = Number(scoreIn);
   if (!Number.isInteger(score) || score < 1 || score > 10) throw new UserError('Bitte eine Bewertung von 1 bis 10 wählen.');
@@ -111,7 +122,7 @@ export function planRating(l: Loaded, scoreIn: unknown, mode: 'A' | 'B', person:
 }
 
 export async function rateMorning(env: Env, l: Loaded, person: string, body: { score: number; mode: string }) {
-  const mode = body.mode === 'B' ? 'B' : 'A';
+  const mode = parseMode(body.mode);
   const r = planRating(l, body.score, mode, person);
   const e = l.engine;
   const stmts: D1PreparedStatement[] = [];
@@ -124,7 +135,7 @@ export async function rateMorning(env: Env, l: Loaded, person: string, body: { s
     );
   }
   stmts.push(
-    env.DB.prepare('INSERT INTO ratings (date, ts, person, score, minutes, mode) VALUES (?, ?, ?, ?, ?, ?)').bind(e.today, e.now, person, r.score, r.minutes, r.penalty ? mode : null),
+    env.DB.prepare('INSERT INTO ratings (date, ts, person, score, minutes, mode) VALUES (?, ?, ?, ?, ?, ?)').bind(e.today, e.now, person, r.score, r.minutes, r.penalty ? r.penalty.mode : null),
   );
   const text = `Morgendliches Benehmen bewertet: ${r.score}/10 – ${r.text}`;
   stmts.push(logStmt(env, e.now, person, 'bewertung', text, r.minutes || null));
@@ -173,9 +184,13 @@ export async function reducePenalty(env: Env, l: Loaded, person: string, body: {
   const minutes = body.minutes === null || body.minutes === undefined ? null : posInt(body.minutes, 'Minuten');
   const split = e.reductionSplit(p, minutes);
   if (split.queueMinutes + split.cutMinutes === 0) throw new UserError('Da ist nichts mehr zu verringern.');
+  // Modus C: Abzug direkt an der Strafe verringern (Übertrag und heutiger Abzug), nicht über die Warteschlange
+  const isC = p.mode === 'C';
+  const changed: Penalty = isC ? { ...p, carry: p.carry - split.queueMinutes, cut: p.cut - split.cutMinutes } : p;
   const after = new Engine({
     ...l.input,
-    adjustments: [...l.input.adjustments, { id: -1, ts: e.now, penaltyId: p.id, ...split }],
+    penalties: l.input.penalties.map((x) => (x.id === p.id ? changed : x)),
+    adjustments: isC ? l.input.adjustments : [...l.input.adjustments, { id: -1, ts: e.now, penaltyId: p.id, ...split }],
   });
   const total = split.queueMinutes + split.cutMinutes;
   const what = minutes === null ? `Strafe „${p.label}“ aufgehoben` : `Strafe „${p.label}“ um ${total} Min. verringert`;
@@ -184,17 +199,18 @@ export async function reducePenalty(env: Env, l: Loaded, person: string, body: {
     env.DB.prepare('INSERT INTO adjustments (ts, penalty_id, queue_minutes, cut_minutes, person, reason) VALUES (?, ?, ?, ?, ?, ?)').bind(
       e.now,
       p.id,
-      split.queueMinutes,
-      split.cutMinutes,
+      isC ? 0 : split.queueMinutes,
+      isC ? 0 : split.cutMinutes,
       person,
       reason,
     ),
+    ...(isC ? [env.DB.prepare('UPDATE penalties SET carry = ?, cut = ? WHERE id = ?').bind(changed.carry, changed.cut, p.id)] : []),
     logStmt(env, e.now, person, 'aenderung', text, -total),
   ]);
   return text;
 }
 
-export async function changeDay(env: Env, l: Loaded, person: string, body: { date: string; start?: string; end?: string; reason: string }) {
+export async function changeDay(env: Env, l: Loaded, person: string, body: { date: string; start?: string; end?: string; bonus?: number | string; reason: string }) {
   const e = l.engine;
   const reason = need(body.reason, 'Bitte eine Begründung angeben.');
   const date = String(body.date ?? '');
@@ -203,16 +219,20 @@ export async function changeDay(env: Env, l: Loaded, person: string, body: { dat
   const end = body.end ? hmToMin(body.end) : null;
   if (body.start && start === null) throw new UserError('Startzeit ungültig (z. B. 10:30).');
   if (body.end && end === null) throw new UserError('Endzeit ungültig (z. B. 22:15).');
-  if (start === null && end === null) throw new UserError('Bitte Start- oder Endzeit angeben.');
+  const bonus = body.bonus !== undefined && body.bonus !== null && String(body.bonus).trim() !== '' ? posInt(body.bonus, 'Zusätzliche Laptop-Zeit') : null;
+  if (bonus !== null && bonus > 600) throw new UserError('Höchstens 600 Minuten zusätzliche Laptop-Zeit auf einmal.');
+  if (start === null && end === null && bonus === null) throw new UserError('Bitte Start, Ende oder zusätzliche Laptop-Zeit angeben.');
   const before = e.dayInfo(date);
   const changes = [
     ...(start !== null ? [{ id: -1, ts: e.now, date, kind: 'start' as const, minutes: start }] : []),
     ...(end !== null ? [{ id: -2, ts: e.now, date, kind: 'end' as const, minutes: end }] : []),
+    ...(bonus !== null ? [{ id: -3, ts: e.now, date, kind: 'bonus' as const, minutes: bonus }] : []),
   ];
   const after = new Engine({ ...l.input, dayChanges: [...l.input.dayChanges, ...changes] }).dayInfo(date);
   const parts: string[] = [];
   if (start !== null) parts.push(after.start < before.start ? `darf am ${dateLabel(date)} schon ab ${minToHm(after.start)} Uhr` : `Medien am ${dateLabel(date)} erst ab ${minToHm(after.start)} Uhr`);
   if (end !== null) parts.push(after.end >= before.end ? `darf am ${dateLabel(date)} bis ${minToHm(after.end)} Uhr` : `Medienzeit endet am ${dateLabel(date)} schon um ${minToHm(after.end)} Uhr`);
+  if (bonus !== null) parts.push(`darf am ${dateLabel(date)} ${fmtMinutes(bonus)} länger an den Laptop`);
   const text = `${reason}, ${parts.join(', ')}`;
   await env.DB.batch([
     ...changes.map((c) =>
@@ -275,6 +295,11 @@ export async function saveSettings(env: Env, l: Loaded, person: string, body: Re
       testDays: num(s.testDays, 'Lerntage vor Test', 30),
       ratingRequired: !!s.ratingRequired,
       ratingFrom: l.settings.ratingFrom,
+      budget: {
+        school: num0(s.budget?.school, 'Tageszeit Mo–Fr'),
+        weekend: num0(s.budget?.weekend, 'Tageszeit Sa/So'),
+        holiday: num0(s.budget?.holiday, 'Tageszeit Ferientage'),
+      },
       ratingMinutes: {
         ok: num0(s.ratingMinutes?.ok, 'Abzug bei 6–7 Punkten'),
         bad: num0(s.ratingMinutes?.bad, 'Abzug bei 3–5 Punkten'),

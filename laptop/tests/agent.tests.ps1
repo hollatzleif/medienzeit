@@ -131,6 +131,29 @@ $s.rt.localActiveMs = 100 * $MIN; $s.rt.lastActiveAt = $t
 Update-LocalActivity -St $s.st -Rt $s.rt -Now ($t + 31 * $MIN) -Active $false
 Assert ($s.rt.localActiveMs -eq 0) 'Pause ≥ 30 Min. setzt den Zähler zurück'
 
+Write-Host "Tageskonto offline"
+$s = New-Setup -Plan @((Seg $base ($base + 24 * $H) $true 'allowed' 'Darf'))
+$s.st.budgetLeftMs = 10 * $MIN
+$t = $base + 1 * $H   # offline
+$s.rt.lastStepAt = $t; $s.rt.lastActiveAt = $t
+$warned = $false
+for ($i = 1; $i -le 601; $i++) {
+    $now = $t + $i * 1000
+    Update-LocalActivity -St $s.st -Rt $s.rt -Now $now -Active $true
+    $a = Invoke-Step -St $s.st -Rt $s.rt -Now $now -ChildSessions $active
+    if (@($a | Where-Object { $_.type -eq 'message' -and $_.text -like '*Laptop-Zeit für heute aufgebraucht*' }).Count) { $warned = $true }
+}
+Assert $warned 'Vorwarnung vor Ende des Tageskontos'
+$v = Get-Verdict -St $s.st -Rt $s.rt -Now ($t + 602000)
+Assert ((-not $v.allowed) -and $v.kind -eq 'budget') 'Tageskonto leer → gesperrt'
+$s2 = New-Setup -Plan @((Seg $base ($base + 24 * $H) $true 'allowed' 'Darf'))
+$resp2 = [pscustomobject]@{ serverTime = $base; segments = @((Seg $base ($base + $H) $true 'allowed' 'Darf')); budget = [pscustomobject]@{ leftMinutes = 25 } }
+Update-FromResponse -St $s2.st -Rt $s2.rt -Resp $resp2 -Tick 1000 -Wall $base
+Assert ($s2.st.budgetLeftMs -eq 25 * $MIN) 'Restzeit kommt vom Server'
+$resp3 = [pscustomobject]@{ serverTime = $base; segments = @(); budget = [pscustomobject]@{ leftMinutes = $null } }
+Update-FromResponse -St $s2.st -Rt $s2.rt -Resp $resp3 -Tick 1000 -Wall $base
+Assert ($s2.st.budgetLeftMs -eq -1) 'Ohne Tageskonto: keine Grenze'
+
 Write-Host "Offline-Meldung und Anfrage"
 $s = New-Setup -Plan @()
 $s.rt.startedAt = $base + 10 * $MIN

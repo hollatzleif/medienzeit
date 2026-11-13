@@ -75,6 +75,10 @@ function renderStatus(el, state) {
     sub.push(`Pause ab ${hm(state.pause.nextPauseAt)}`);
   }
   if (state.pause && state.pause.active && state.pause.activeSoFarMinutes > 0) sub.push(`am Laptop seit ${fmtMin(state.pause.activeSoFarMinutes)} ohne Pause`);
+  const b = st.budget;
+  if (b && b.limitMinutes !== null) {
+    sub.push(`Laptop heute: ${fmtMin(b.usedMinutes)} von ${fmtMin(b.limitMinutes)} genutzt${b.deductedMinutes ? `, ${fmtMin(b.deductedMinutes)} Abzug` : ''} · noch ${fmtMin(b.leftMinutes)}`);
+  }
   el.innerHTML = `
     <div class="big">${esc(st.text)}</div>
     <div class="count" id="countdown"></div>
@@ -103,8 +107,8 @@ function renderPenalties(state, withActions) {
       <div class="pen-row">
         <div>
           <div class="title">${esc(p.label)}</div>
-          <div class="muted small">${esc(p.person)}, ${esc(dayLabel(p.ts))} ${hm(p.ts)} · ${p.mode === 'B' ? 'Rest von „früher Schluss“' : fmtMin(p.minutes)}</div>
-          <div class="small">noch <b>${fmtMin(p.remainingMinutes)}</b>${p.waitingUntil ? ` · beginnt ${esc(when(p.waitingUntil))}` : ''}${p.endsAt ? ` · voraussichtlich abgegolten ${esc(when(p.endsAt))}` : ''}</div>
+          <div class="muted small">${esc(p.person)}, ${esc(dayLabel(p.ts))} ${hm(p.ts)} · ${p.mode === 'B' ? 'Rest von „früher Schluss“' : p.mode === 'C' ? `${fmtMin(p.minutes)} vom Tageskonto` : fmtMin(p.minutes)}</div>
+          <div class="small">${p.mode === 'C' ? 'wird noch abgezogen:' : 'noch'} <b>${fmtMin(p.remainingMinutes)}</b>${p.waitingUntil ? ` · beginnt ${esc(when(p.waitingUntil))}` : ''}${p.endsAt ? ` · voraussichtlich abgegolten ${esc(when(p.endsAt))}` : ''}</div>
         </div>
         ${withActions ? `<button class="ghost" data-reduce="${p.id}">Verringern</button>` : ''}
       </div>
@@ -117,9 +121,9 @@ function renderWeek(state) {
     <tr class="${d.date === today ? 'today' : ''}">
       <td>${esc(d.label)}</td>
       <td>${d.school ? 'Schule' : esc(d.holiday || 'frei')}</td>
-      <td style="text-align:right">${esc(d.start)}–${esc(d.end)}</td>
+      <td style="text-align:right">${esc(d.start)}–${esc(d.end)}${d.budget ? `<br><span class="muted small">max. ${fmtMin(d.budget)}</span>` : ''}</td>
     </tr>`).join('')}</table>
-    <p class="muted small">Medien jeweils erst, wenn die Checkliste erledigt ist.</p>`;
+    <p class="muted small">Medien jeweils erst, wenn die Checkliste erledigt ist. „max.“ = höchstens so viel Zeit am Laptop an dem Tag.</p>`;
 }
 
 function renderExams(state, withDelete) {

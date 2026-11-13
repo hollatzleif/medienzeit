@@ -7,7 +7,7 @@
 //  4. Strafen-Warteschlange (FIFO) verbraucht Restminuten nur in verbrauchbarer Zeit → Sperren
 //  5. erlaubt = (Basis − Pausen − Sperren) ∪ Sonderfreigaben
 
-import { Iv, clip, contains, intersect, normalize, subtract, union } from './intervals';
+import { Iv, clip, contains, intersect, normalize, subtract, total, union } from './intervals';
 import {
   MIN,
   addDays,
@@ -86,7 +86,7 @@ export interface OpenPenalty {
   person: string;
   ts: number;
   minutes: number;
-  mode: 'A' | 'B';
+  mode: 'A' | 'B' | 'C';
   remainingMinutes: number;
   /** Modus-B-Übertrag, der erst morgen beginnt */
   waitingUntil: number | null;
@@ -187,6 +187,7 @@ export class Engine {
       const ops: Op[] = [];
       for (const c of this.inp.dayChanges) {
         if (c.date !== date) continue;
+        if (c.kind === 'bonus') continue;
         ops.push({ ts: c.ts, apply: () => (c.kind === 'start' ? (start = c.minutes) : (end = c.minutes)) });
       }
       const bPen = new Map<number, Penalty>();
@@ -290,8 +291,114 @@ export class Engine {
 
   base(mode: Mode): Iv[] {
     return this.cached(`base:${mode}`, () =>
-      union(...this.dates().map((d) => intersect([[this.dayInfo(d).startTs, this.dayInfo(d).endTs]], this.checklistIv(d, mode)))),
+      subtract(
+        union(...this.dates().map((d) => intersect([[this.dayInfo(d).startTs, this.dayInfo(d).endTs]], this.checklistIv(d, mode)))),
+        this.budgetLocks(),
+      ),
     );
+  }
+
+  // ---------- Tageskonto ----------
+
+  /** Maximale Laptop-Zeit eines Tages in Minuten (inkl. Bonus), null = keine Grenze */
+  budgetBase(date: string): number | null {
+    return this.cached(`budget:${date}`, () => {
+      const b = this.s.budget;
+      if (!b) return null;
+      const wd = weekdayOf(date);
+      const v = wd >= 6 ? b.weekend : this.isSchoolDay(date) ? b.school : b.holiday;
+      if (!v) return null;
+      const bonus = this.inp.dayChanges.filter((c) => c.date === date && c.kind === 'bonus').reduce((sum, c) => sum + c.minutes, 0);
+      return v + bonus;
+    });
+  }
+
+  /** Abzüge vom Tageskonto (Modus C): Datum → Minuten, außerdem je Strafe die Verteilung */
+  budgetDeductions(): { byDate: Map<string, number>; byPenalty: Map<number, Map<string, number>> } {
+    return this.cached('deductions', () => {
+      const byDate = new Map<string, number>();
+      const byPenalty = new Map<number, Map<string, number>>();
+      const add = (pid: number, d: string, m: number) => {
+        if (m <= 0) return;
+        byDate.set(d, (byDate.get(d) ?? 0) + m);
+        const pm = byPenalty.get(pid) ?? new Map<string, number>();
+        pm.set(d, (pm.get(d) ?? 0) + m);
+        byPenalty.set(pid, pm);
+      };
+      const list = this.inp.penalties.filter((p) => p.mode === 'C').sort((a, b) => a.ts - b.ts || a.id - b.id);
+      for (const p of list) {
+        add(p.id, p.date, Math.max(0, p.cut));
+        let left = Math.max(0, p.carry);
+        let d = addDays(p.date, 1);
+        for (let i = 0; left > 0 && i < 120; i++, d = addDays(d, 1)) {
+          const base = this.budgetBase(d);
+          if (base === null) continue;
+          const take = Math.min(left, Math.max(0, base - (byDate.get(d) ?? 0)));
+          add(p.id, d, take);
+          left -= take;
+        }
+      }
+      return { byDate, byPenalty };
+    });
+  }
+
+  /** Aktive Nutzung eines Tages (ohne Sonderfreigaben), bis jetzt */
+  usageIv(date: string): Iv[] {
+    return this.cached(`usage:${date}`, () =>
+      subtract(clip(normalize(this.inp.activity.map((a) => [a.from, Math.min(a.to, this.now)] as Iv)), dayStart(date), dayEnd(date)), this.grants()),
+    );
+  }
+
+  budgetView(date = this.today) {
+    const base = this.budgetBase(date);
+    const deducted = this.budgetDeductions().byDate.get(date) ?? 0;
+    const used = Math.floor(total(this.usageIv(date)) / MIN);
+    if (base === null) return { limitMinutes: null, deductedMinutes: deducted, usedMinutes: used, leftMinutes: null as number | null };
+    return { limitMinutes: base, deductedMinutes: deducted, usedMinutes: used, leftMinutes: Math.max(0, base - deducted - used) };
+  }
+
+  /** Ab wann ist das Tageskonto leer? (tatsächlich, und heute bei laufender Nutzung vorhergesagt) */
+  budgetLocks(): Iv[] {
+    return this.cached('budgetLocks', () => {
+      const out: Iv[] = [];
+      const acts = normalize(this.inp.activity.map((a) => [a.from, Math.min(a.to, this.now)] as Iv));
+      const lastAct = acts.length ? acts[acts.length - 1][1] : -Infinity;
+      const activeNow = lastAct >= this.now - 90_000;
+      for (const d of this.dates()) {
+        if (d > this.today) break;
+        const base = this.budgetBase(d);
+        if (base === null) continue;
+        const ds = dayStart(d);
+        const de = dayEnd(d);
+        const availMs = (base - (this.budgetDeductions().byDate.get(d) ?? 0)) * MIN;
+        if (availMs <= 0) {
+          out.push([ds, de]);
+          continue;
+        }
+        let used = 0;
+        let lockAt: number | null = null;
+        for (const [a, b] of this.usageIv(d)) {
+          if (used + (b - a) >= availMs) {
+            lockAt = a + (availMs - used);
+            break;
+          }
+          used += b - a;
+        }
+        if (lockAt === null && d === this.today && activeNow) lockAt = this.now + (availMs - used);
+        if (lockAt !== null && lockAt < de) out.push([lockAt, de]);
+      }
+      return normalize(out);
+    });
+  }
+
+  /** Modus C: wie viel wird heute vom Konto abgezogen, wie viel an den nächsten Tagen? null = kein Tageskonto */
+  modeCSplit(minutes: number): { cut: number; carry: number } | null {
+    const bv = this.budgetView(this.today);
+    if (bv.leftMinutes === null) return null;
+    const d = this.dayInfo(this.today);
+    const windowLeft = Math.floor(Math.max(0, d.endTs - Math.max(this.now, d.startTs)) / MIN);
+    const cut = Math.max(0, Math.min(minutes, bv.leftMinutes, windowLeft));
+    return { cut, carry: minutes - cut };
   }
 
   grants(): Iv[] {
@@ -369,6 +476,7 @@ export class Engine {
     return this.cached(`sweep:${mode}:${marks.join(',')}`, () => {
       const cp = this.inp.checkpoint;
       const items = this.inp.penalties
+        .filter((p) => p.mode !== 'C')
         .map((p) => ({ p, entry: this.entryOf(p), remaining: this.initialRemaining(p) }))
         .sort((a, b) => a.entry - b.entry || a.p.ts - b.p.ts || a.p.id - b.p.id);
       const byId = new Map(items.map((i) => [i.p.id, i]));
@@ -454,6 +562,7 @@ export class Engine {
     const lock = this.sweep(mode).locks.find((l) => l.from <= t && t < l.to);
     if (lock) return { kind: 'penalty', penaltyId: lock.id };
     if (contains(this.pauses(), t)) return { kind: 'pause' };
+    if (contains(this.budgetLocks(), t) && contains(this.windows(), t)) return { kind: 'budget' };
     if (contains(this.base(mode), t)) return { kind: 'allowed' };
     if (contains(this.windows(), t)) return { kind: 'checklist' };
     return { kind: 'schedule' };
@@ -466,6 +575,7 @@ export class Engine {
     add(this.base(mode));
     add(this.pauses());
     add(this.grants());
+    add(this.budgetLocks());
     add(this.sweep(mode).locks.map((l) => [l.from, l.to] as Iv));
     const sorted = [...pts].sort((a, b) => a - b);
     const segs: Segment[] = [];
@@ -499,8 +609,19 @@ export class Engine {
   textFor(seg: Segment, mode: Mode): string {
     const now = Math.max(this.now, seg.from);
     switch (seg.kind) {
-      case 'allowed':
+      case 'allowed': {
+        const d = localDate(now);
+        const bv = d === this.today ? this.budgetView(d) : null;
+        const windowEnd = this.dayInfo(d).endTs;
+        if (bv && bv.leftMinutes !== null && bv.leftMinutes * MIN < seg.to - now - MIN) {
+          return `Noch ${fmtMinutes(bv.leftMinutes)} Laptop-Zeit heute (bis spätestens ${fmtWhen(windowEnd, this.now)})`;
+        }
         return `Darf bis ${fmtWhen(seg.to, this.now)}`;
+      }
+      case 'budget': {
+        const next = this.nextAllowed(mode, now);
+        return next ? `Tageszeit aufgebraucht – wieder ab ${fmtWhen(next, this.now)}` : 'Tageszeit aufgebraucht';
+      }
       case 'grant':
         return `Sonderfreigabe bis ${fmtWhen(seg.to, this.now)}`;
       case 'pause':
@@ -539,14 +660,24 @@ export class Engine {
 
   remainingAtNow(): Map<number, number> {
     const snap = this.sweep('real', [this.now]).snapshots.get(this.now);
-    return snap ?? new Map();
+    return new Map(snap ?? []);
   }
 
   // ---------- Ergebnis ----------
 
+  /** Modus C: noch wirksamer Abzug (heute und künftige Tage) */
+  budgetRemaining(p: Penalty): number {
+    const dist = this.budgetDeductions().byPenalty.get(p.id);
+    if (!dist) return 0;
+    let m = 0;
+    for (const [d, v] of dist) if (d >= this.today) m += v;
+    return m;
+  }
+
   openPenalties(): OpenPenalty[] {
     const rem = this.remainingAtNow();
     const hopeful = this.sweep('hopeful');
+    for (const p of this.inp.penalties) if (p.mode === 'C') rem.set(p.id, this.budgetRemaining(p) * MIN);
     return this.inp.penalties
       .filter((p) => (rem.get(p.id) ?? 0) > 0)
       .sort((a, b) => this.entryOf(a) - this.entryOf(b) || a.ts - b.ts)
@@ -560,8 +691,8 @@ export class Engine {
           minutes: p.minutes,
           mode: p.mode,
           remainingMinutes: Math.ceil((rem.get(p.id) ?? 0) / MIN),
-          waitingUntil: entry > this.now ? entry : null,
-          endsAt: hopeful.settleAt.get(p.id) ?? null,
+          waitingUntil: p.mode !== 'C' && entry > this.now ? entry : null,
+          endsAt: p.mode === 'C' ? null : (hopeful.settleAt.get(p.id) ?? null),
         };
       });
   }
@@ -576,6 +707,10 @@ export class Engine {
     const settledIds: number[] = [];
     for (const p of this.inp.penalties) {
       if (p.ts >= t) continue;
+      if (p.mode === 'C') {
+        if (this.budgetRemaining(p) === 0) settledIds.push(p.id);
+        continue;
+      }
       const r = snap.get(p.id) ?? 0;
       if (r > 0) remaining[String(p.id)] = r;
       else settledIds.push(p.id);
@@ -596,6 +731,7 @@ export class Engine {
       until,
       lockId: seg.lockId,
       penaltyId: seg.penaltyId ?? null,
+      budget: this.budgetView(),
     };
   }
 
@@ -617,6 +753,16 @@ export class Engine {
 
   /** Verringerung einer Strafe aufteilen (Warteschlange zuerst, dann heutige Modus-B-Kürzung). */
   reductionSplit(p: Penalty, minutes: number | null): { queueMinutes: number; cutMinutes: number } {
+    if (p.mode === 'C') {
+      // queueMinutes = Verringerung des Übertrags (künftige Tage zuerst), cutMinutes = Verringerung des heutigen Abzugs
+      const want = minutes === null ? Infinity : minutes;
+      const dist = this.budgetDeductions().byPenalty.get(p.id) ?? new Map<string, number>();
+      let carryReducible = 0;
+      for (const [d, v] of dist) if (d >= this.today && d !== p.date) carryReducible += v;
+      const queueMinutes = Math.min(want, carryReducible);
+      const cutMinutes = p.date === this.today ? Math.min(want - queueMinutes, p.cut) : 0;
+      return { queueMinutes, cutMinutes };
+    }
     const remQueue = Math.ceil((this.remainingAtNow().get(p.id) ?? 0) / MIN);
     const want = minutes === null ? Infinity : minutes;
     const queueMinutes = Math.min(want, remQueue);

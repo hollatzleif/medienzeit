@@ -59,8 +59,9 @@
     <div data-pane="penalty" class="hidden">
       <section class="card">
         <div class="seg" id="mode">
-          <button data-mode="A" class="on">Sofort</button>
-          <button data-mode="B">Heute früher Schluss</button>
+          <button data-mode="C" class="on">Vom Tageskonto</button>
+          <button data-mode="A">Sofort</button>
+          <button data-mode="B">Früher Schluss</button>
         </div>
         <p class="muted small" id="mode-help"></p>
         <div class="penalty-grid" id="catalog"></div>
@@ -88,7 +89,7 @@
 
       <section class="card">
         <h2>Zeit an einem Tag ändern</h2>
-        <p class="muted small">Späteres Ende oder früherer Start = mehr Zeit (z. B. Guthaben einlösen). Früheres Ende = Sperrzeit verlängern. Die Checkliste gilt weiterhin.</p>
+        <p class="muted small">Zusätzliche Laptop-Zeit = mehr Minuten auf dem Tageskonto (z. B. Guthaben einlösen). Späteres Ende oder früherer Start verschiebt das Zeitfenster. Früheres Ende = Sperrzeit verlängern. Die Checkliste gilt weiterhin.</p>
         <label>Tag</label>
         <input type="date" id="day-date">
         <p class="muted small" id="day-current"></p>
@@ -96,6 +97,8 @@
           <div><label>Start (leer = unverändert)</label><input type="time" id="day-start"></div>
           <div><label>Ende (leer = unverändert)</label><input type="time" id="day-end"></div>
         </div>
+        <label>Zusätzliche Laptop-Zeit an dem Tag (Minuten, leer = keine)</label>
+        <input type="number" id="day-bonus" inputmode="numeric" min="1" placeholder="z. B. 30 – Guthaben einlösen">
         <label>Begründung</label>
         <input id="day-reason" placeholder="z. B. Im Garten geholfen">
         <p></p>

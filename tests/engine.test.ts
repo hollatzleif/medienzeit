@@ -384,3 +384,94 @@ describe('Bewertung des morgendlichen Benehmens', () => {
     expect(e.plan().filter((s) => s.allowed)).toHaveLength(1);
   });
 });
+
+describe('Tageskonto (max. Laptop-Zeit pro Tag)', () => {
+  const act = (date: string, from: string, to: string) => ({ from: at(date, from), to: at(date, to) });
+
+  it('Mo: 2,5 Std. genutzt, gerade aktiv → darf noch bis 15:00', () => {
+    const e = engine(at(MO, '14:30'), { checklistEvents: checkAll(MO, '11:00'), activity: [act(MO, '12:00', '14:30')] });
+    expect(e.budgetView()).toMatchObject({ limitMinutes: 180, usedMinutes: 150, leftMinutes: 30 });
+    expect(e.status().text).toBe('Darf bis 15:00');
+    expect(e.plan().find((s) => s.kind === 'budget')).toBeTruthy();
+  });
+
+  it('Mo: 3 Std. genutzt → Tageszeit aufgebraucht', () => {
+    const e = engine(at(MO, '15:31'), {
+      checklistEvents: checkAll(MO, '11:00'),
+      activity: [act(MO, '12:00', '13:30'), act(MO, '14:00', '15:30')],
+    });
+    expect(e.status().kind).toBe('budget');
+    expect(e.status().text).toBe('Tageszeit aufgebraucht – wieder ab morgen 12:00');
+  });
+
+  it('Nicht aktiv: Restzeit wird angezeigt, Fenster bleibt offen', () => {
+    const e = engine(at(MO, '14:00'), { checklistEvents: checkAll(MO, '11:00'), activity: [act(MO, '12:00', '13:00')] });
+    expect(e.status().allowed).toBe(true);
+    expect(e.status().text).toBe('Noch 2 Std. Laptop-Zeit heute (bis spätestens 20:00)');
+  });
+
+  it('Sa/So 5 Std., Ferientag unter der Woche wie Wochenende', () => {
+    const holidays = [{ from: DI, to: DI, label: 'Feiertag' }];
+    const e = engine(at(MO, '12:00'), { holidays });
+    expect(e.budgetBase(MO)).toBe(180);
+    expect(e.budgetBase(DI)).toBe(300);
+    expect(e.budgetBase(SA)).toBe(300);
+    expect(e.budgetBase(SO)).toBe(300);
+  });
+
+  it('Strafe „vom Tageskonto“: 1 Std. weniger heute', () => {
+    const e0 = engine(at(MO, '13:00'), { checklistEvents: checkAll(MO, '11:00') });
+    const split = e0.modeCSplit(60)!;
+    expect(split).toEqual({ cut: 60, carry: 0 });
+    const p = penalty(at(MO, '13:00'), 60, 'Rumschreien', 'Papa', { mode: 'C', ...split });
+    const e = engine(at(MO, '13:01'), { checklistEvents: checkAll(MO, '11:00'), penalties: [p] });
+    expect(e.budgetView()).toMatchObject({ deductedMinutes: 60, leftMinutes: 120 });
+    expect(e.status().allowed).toBe(true);
+    expect(e.openPenalties()[0]).toMatchObject({ mode: 'C', remainingMinutes: 60 });
+  });
+
+  it('Reicht das Konto heute nicht, wird der Rest an den nächsten Tagen abgezogen', () => {
+    const e0 = engine(at(MO, '19:30'), { checklistEvents: checkAll(MO, '11:00') });
+    const split = e0.modeCSplit(60)!;
+    expect(split).toEqual({ cut: 30, carry: 30 });
+    const p = penalty(at(MO, '19:30'), 60, 'Lügen', 'Mama', { mode: 'C', ...split });
+    const di = engine(at(DI, '12:00'), { checklistEvents: [...checkAll(MO, '11:00'), ...checkAll(DI, '11:00')], penalties: [p] });
+    expect(di.budgetView()).toMatchObject({ deductedMinutes: 30, leftMinutes: 150 });
+
+    const big = penalty(at(FR, '20:00'), 600, 'Heimlich Medien genutzt', 'Papa', { mode: 'C', cut: 90, carry: 510 });
+    const sa = engine(at(SA, '12:00'), { penalties: [big] });
+    expect(sa.budgetView(SA)).toMatchObject({ deductedMinutes: 300, leftMinutes: 0 });
+    expect(sa.budgetView(SO)).toMatchObject({ deductedMinutes: 210, leftMinutes: 90 });
+    expect(sa.status().kind).toBe('budget');
+  });
+
+  it('Strafe vom Tageskonto verringern: Übertrag zuerst', () => {
+    const p = penalty(at(MO, '19:30'), 60, 'Lügen', 'Mama', { mode: 'C', cut: 30, carry: 30 });
+    const e = engine(at(MO, '19:40'), { checklistEvents: checkAll(MO, '11:00'), penalties: [p] });
+    expect(e.reductionSplit(p, 40)).toEqual({ queueMinutes: 30, cutMinutes: 10 });
+  });
+
+  it('Sonderfreigabe zählt nicht aufs Tageskonto', () => {
+    const e = engine(at(MO, '16:00'), {
+      checklistEvents: checkAll(MO, '11:00'),
+      activity: [act(MO, '12:00', '15:00')],
+      grants: [{ id: 1, from: at(MO, '14:00'), to: at(MO, '15:00'), person: 'Mama', reason: 'Referat' }],
+    });
+    expect(e.budgetView()).toMatchObject({ usedMinutes: 120, leftMinutes: 60 });
+  });
+
+  it('Zusätzliche Laptop-Zeit (Bonus) an einem Tag', () => {
+    const e = engine(at(MO, '12:00'), { dayChanges: [{ id: 1, ts: at(MO, '08:00'), date: MO, kind: 'bonus', minutes: 45 }] });
+    expect(e.budgetBase(MO)).toBe(225);
+  });
+
+  it('Tageskonto aus (0) → keine Grenze', () => {
+    const e = engine(at(MO, '15:31'), {
+      settings: { ...DEFAULT_SETTINGS, ratingRequired: false, budget: { school: 0, weekend: 0, holiday: 0 } },
+      checklistEvents: checkAll(MO, '11:00'),
+      activity: [act(MO, '12:00', '13:30'), act(MO, '14:00', '15:30')],
+    });
+    expect(e.status().kind).toBe('allowed');
+    expect(e.modeCSplit(30)).toBeNull();
+  });
+});

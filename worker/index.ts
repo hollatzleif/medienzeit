@@ -8,6 +8,7 @@ import {
   createPenalty,
   deleteExam,
   checkItem,
+  parseMode,
   planPenalty,
   planRating,
   rateMorning,
@@ -128,12 +129,12 @@ async function route(req: Request, env: Env): Promise<Response> {
     case 'penalty': {
       const cat = l.catalog.find((c) => c.id === Number(body.catalogId));
       if (!cat) throw new UserError('Diesen Verstoß gibt es nicht mehr.');
-      const mode = body.mode === 'B' ? 'B' : 'A';
+      const mode = parseMode(body.mode);
       if (action === 'preview') return json({ ok: true, text: planPenalty(l, cat, mode, person).text });
       return done(await createPenalty(env, l, cat, mode, person));
     }
     case 'rating-preview': {
-      const r = planRating(l, body.score, body.mode === 'B' ? 'B' : 'A', person);
+      const r = planRating(l, body.score, parseMode(body.mode), person);
       return json({ ok: true, text: r.text, minutes: r.minutes });
     }
     case 'check':

@@ -52,13 +52,15 @@ Header: `Authorization: Bearer <DEVICE_TOKEN>`, `Content-Type: application/json`
   "warnMinutes": 5,
   "penaltyGraceSeconds": 60,
   "reloginGraceSeconds": 15,
+  "budget": { "leftMinutes": 95 },
   "pause": { "activeMinutes": 180, "breakMinutes": 30, "pauseMinutes": 30, "activeSoFarMinutes": 42 }
 }
 ```
 
-- `kind`: `allowed`, `grant` (Sonderfreigabe), `penalty`, `pause`, `checklist`, `schedule` (Sperrzeit) oder `offline`.
+- `kind`: `allowed`, `grant` (Sonderfreigabe), `penalty`, `pause`, `budget` (Tageskonto leer), `checklist`, `schedule` (Sperrzeit) oder `offline`.
 - `lockId`: Kennung des Sperrgrunds. Ändert sie sich, ist eine neue Sperre entstanden, zum Beispiel eine neue Strafe.
 - `segments`: lückenloser Plan von `serverTime` bis `serverTime + 24 h`. Er ist **vorsichtig gerechnet**: An künftigen Tagen gilt die Checkliste als offen. Ist Ludwig gerade aktiv, steht die fällige Pause aus der Pausenregel als Abschnitt `pause` drin, berechnet für den Fall, dass er durchgehend weiterspielt. So kommt die Vorwarnung rechtzeitig.
+- `budget.leftMinutes`: restliche Laptop-Zeit heute (Tageskonto), `null` = keine Grenze. Offline zählt der Laptop selbst herunter und sperrt bei 0. Online steht das Ende bei laufender Nutzung als Abschnitt `budget` im Plan.
 - `pause.activeSoFarMinutes`: aktive Minuten seit der letzten Pause von mindestens `breakMinutes`. Offline zählt der Laptop von diesem Wert aus selbst weiter und erzwingt die Pause dann selbst.
 
 ### Fehler

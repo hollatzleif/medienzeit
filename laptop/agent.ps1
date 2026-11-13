@@ -21,7 +21,7 @@ param(
     [switch]$Sessions
 )
 
-$script:Version = '2.0.0'
+$script:Version = '2.1.0'
 $script:Title = 'Medienzeit'
 
 # ======================================================================
@@ -44,6 +44,7 @@ function New-AgentState {
         pauseMinutes      = 30
         activeSoFar       = 0
         offlinePauseUntil = [double]0
+        budgetLeftMs      = [double]-1
         events            = @()
         activity          = @()
     }
@@ -137,6 +138,9 @@ function Get-Verdict {
     if (-not $online -and $St.offlinePauseUntil -gt $Now) {
         return @{ allowed = $false; text = "Pause bis $(Format-Clock $St.offlinePauseUntil)"; kind = 'pause'; runEnd = $Now; endText = '' }
     }
+    if (-not $online -and [double]$St.budgetLeftMs -eq 0) {
+        return @{ allowed = $false; text = 'Laptop-Zeit für heute aufgebraucht.'; kind = 'budget'; runEnd = $Now; endText = '' }
+    }
     $seg = Find-Segment -Plan $St.plan -T $Now
     if ($null -eq $seg) {
         return @{ allowed = $false; text = 'Kein aktueller Plan – Laptop gesperrt.'; kind = 'offline'; runEnd = $Now; endText = '' }
@@ -153,6 +157,10 @@ function Get-Verdict {
     if (-not $online -and $Rt.lastActiveAt -ge ($Now - 5000)) {
         $pauseAt = $Now + ([double]$St.pauseActive * 60000 - $Rt.localActiveMs)
         if ($pauseAt -lt $runEnd) { $runEnd = $pauseAt; $endText = 'beginnt eine Pause' }
+        if ([double]$St.budgetLeftMs -gt 0) {
+            $budgetAt = $Now + [double]$St.budgetLeftMs
+            if ($budgetAt -lt $runEnd) { $runEnd = $budgetAt; $endText = 'ist die Laptop-Zeit für heute aufgebraucht' }
+        }
     }
     return @{ allowed = $true; text = [string]$seg.text; kind = [string]$seg.kind; runEnd = $runEnd; endText = $endText }
 }
@@ -169,6 +177,8 @@ function Update-LocalActivity {
     $Rt.localActiveMs += $dt
     $Rt.lastActiveAt = $Now
     if (Test-Online -St $St -Now $Now) { return }
+    # offline: Tageskonto selbst herunterzählen
+    if ([double]$St.budgetLeftMs -gt 0) { $St.budgetLeftMs = [math]::Max(0, [double]$St.budgetLeftMs - $dt) }
     # offline: Aktivität für den Server puffern
     $list = @($St.activity)
     if ($list.Count -gt 0 -and ($Now - [double]$list[-1].to) -le 60000) {
@@ -288,6 +298,10 @@ function Update-FromResponse {
         $Rt.localActiveMs = [double]$Resp.pause.activeSoFarMinutes * 60000
     }
     $St.offlinePauseUntil = [double]0
+    $St.budgetLeftMs = [double]-1
+    if ($Resp.PSObject.Properties['budget'] -and $null -ne $Resp.budget -and $null -ne $Resp.budget.leftMinutes) {
+        $St.budgetLeftMs = [double]$Resp.budget.leftMinutes * 60000
+    }
     $St.events = @()
     $St.activity = @()
     $Rt.clockSuspicious = $false

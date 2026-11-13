@@ -1,12 +1,18 @@
 'use strict';
 
 let state = null;
-let mode = 'A';
+let mode = 'C';
 let me = localStorage.getItem('medienzeit-person') || '';
 let pinCache = { person: '', pin: '', until: 0 };
 let currentTab = 'overview';
 let settingsDirty = false;
 
+const MODE_HELP = {
+  C: 'Wird von der heutigen Laptop-Zeit (Tageskonto) abgezogen. Reicht das Konto heute nicht, wird der Rest an den nächsten Tagen abgezogen.',
+  A: 'Sperrt die nächsten Minuten Medienzeit ab jetzt. Läuft schon eine Strafe, wird hinten angehängt.',
+  B: 'Die heutige Endzeit rückt nach vorne. Reicht die Zeit heute nicht, wird der Rest morgen am Anfang abgezogen.',
+};
+const MODE_NAME = { C: 'Vom Tageskonto', A: 'Sofort', B: 'Heute früher Schluss' };
 const WD = ['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag'];
 const COND = { always: 'jeden Tag', school: 'nur an Schultagen', study: 'nur bei Klausur/Test', tomorrowSchool: 'nur wenn morgen Schule ist' };
 const minToTime = (m) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
@@ -102,9 +108,7 @@ function renderAll() {
 }
 
 function renderCatalog() {
-  $('#mode-help').textContent = mode === 'A'
-    ? 'Sperrt die nächsten Minuten Medienzeit ab jetzt. Läuft schon eine Strafe, wird hinten angehängt.'
-    : 'Die heutige Endzeit rückt nach vorne. Reicht die Zeit heute nicht, wird der Rest morgen am Anfang abgezogen.';
+  $('#mode-help').textContent = MODE_HELP[mode];
   $('#catalog').innerHTML = state.catalog.map((c) => `
     <button class="penalty-btn" data-cat="${c.id}">
       <span>${esc(c.label)}</span><span class="min">${c.special === 'reset_checklist' ? 'Checkliste + ' : ''}${fmtMin(c.minutes)}</span>
@@ -144,7 +148,7 @@ $('#catalog').addEventListener('click', async (e) => {
   } catch (err) { toast(err.message, true); return; }
   const m = modal(`
     <h2>${esc(cat.label)} – ${fmtMin(cat.minutes)}</h2>
-    <p class="muted small">${cat.special === 'reset_checklist' ? 'Checkliste wird zurückgesetzt' : mode === 'A' ? 'Sofort' : 'Heute früher Schluss'} · eingetragen von ${esc(me)}</p>
+    <p class="muted small">${cat.special === 'reset_checklist' ? 'Checkliste wird zurückgesetzt' : MODE_NAME[mode]} · eingetragen von ${esc(me)}</p>
     <div class="effect">${esc(preview.text)}</div>
     <div class="row"><button class="secondary" id="m-no">Abbrechen</button><button class="danger" id="m-ok">Bestätigen</button></div>`);
   $('#m-no', m.el).onclick = m.close;
@@ -245,14 +249,15 @@ $('#rating').addEventListener('click', (e) => { if (e.target.id === 'rating-open
 function openRating() {
   if (!needPerson()) return;
   let score = 0;
-  let rmode = 'A';
+  let rmode = 'C';
   const m = modal(`
     <h2>Morgendliches Benehmen</h2>
     <p class="muted small">Wie hat sich Ludwig heute bis jetzt benommen? 10 = super.<br>Abzug: 8–10 keiner · 6–7 ${fmtMin(ratingMinutes(6))} · 3–5 ${fmtMin(ratingMinutes(3))} · 1–2 ${fmtMin(ratingMinutes(1))}</p>
     <div class="score-grid">${[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => `<button class="chip" data-score="${n}">${n}</button>`).join('')}</div>
     <div class="seg hidden" id="r-mode" style="margin-top:12px">
-      <button data-rmode="A" class="on">Sofort</button>
-      <button data-rmode="B">Heute früher Schluss</button>
+      <button data-rmode="C" class="on">Vom Tageskonto</button>
+      <button data-rmode="A">Sofort</button>
+      <button data-rmode="B">Früher Schluss</button>
     </div>
     <div class="effect" id="r-effect"></div>
     <div class="row"><button class="secondary" id="r-cancel">Abbrechen</button><button id="r-go" disabled>Bewerten (PIN)</button></div>`);
@@ -309,17 +314,17 @@ $('#grant-go').addEventListener('click', async () => {
 function updateDayCurrent() {
   const date = $('#day-date').value;
   const d = state && state.days.find((x) => x.date === date);
-  $('#day-current').textContent = d ? `Bisher: ${d.start}–${d.end} Uhr${d.school ? ' (Schultag)' : ''}` : '';
+  $('#day-current').textContent = d ? `Bisher: ${d.start}–${d.end} Uhr${d.budget ? `, max. ${fmtMin(d.budget)} am Laptop` : ''}${d.school ? ' (Schultag)' : ''}` : '';
 }
 $('#day-date').addEventListener('change', updateDayCurrent);
 
 $('#day-go').addEventListener('click', async () => {
-  const body = { date: $('#day-date').value, start: $('#day-start').value || undefined, end: $('#day-end').value || undefined, reason: $('#day-reason').value };
+  const body = { date: $('#day-date').value, start: $('#day-start').value || undefined, end: $('#day-end').value || undefined, bonus: $('#day-bonus').value || undefined, reason: $('#day-reason').value };
   if (!body.date) return toast('Bitte einen Tag wählen.', true);
-  if (!body.start && !body.end) return toast('Bitte Start oder Ende angeben.', true);
+  if (!body.start && !body.end && !body.bonus) return toast('Bitte zusätzliche Laptop-Zeit, Start oder Ende angeben.', true);
   if (!body.reason.trim()) return toast('Bitte eine Begründung angeben.', true);
   const r = await withPin('Zeit ändern', 'day', body);
-  if (r) { $('#day-start').value = ''; $('#day-end').value = ''; $('#day-reason').value = ''; }
+  if (r) { $('#day-start').value = ''; $('#day-end').value = ''; $('#day-bonus').value = ''; $('#day-reason').value = ''; }
 });
 
 // ---------- Klausuren ----------
@@ -386,6 +391,12 @@ function renderSettings() {
         <div><label>Offline gilt Plan … Min.</label><input type="number" id="s-off" value="${s.offlineMinutes}"></div>
         <div><label>Lerntage vor Klausur</label><input type="number" id="s-ex" value="${s.examDays}"></div>
         <div><label>Lerntage vor Test</label><input type="number" id="s-te" value="${s.testDays}"></div>
+      </div>
+      <h3>Tageskonto: maximale Laptop-Zeit (Minuten, 0 = keine Grenze)</h3>
+      <div class="grid2">
+        <div><label>Mo–Fr (Schultag)</label><input type="number" id="s-b1" value="${(s.budget || {}).school ?? 180}"></div>
+        <div><label>Sa und So</label><input type="number" id="s-b2" value="${(s.budget || {}).weekend ?? 300}"></div>
+        <div><label>Ferien/Feiertage (Mo–Fr)</label><input type="number" id="s-b3" value="${(s.budget || {}).holiday ?? 300}"></div>
       </div>
       <h3>Bewertung des Morgens</h3>
       <label><input type="checkbox" id="s-rr" ${s.ratingRequired ? 'checked' : ''}> Pflicht: Medienzeit erst nach Bewertung durch einen Erwachsenen</label>
@@ -478,6 +489,7 @@ $('#settings').addEventListener('click', async (e) => {
       testDays: Number($('#s-te').value),
       ratingRequired: $('#s-rr').checked,
       ratingMinutes: { ok: Number($('#s-r1').value), bad: Number($('#s-r2').value), worst: Number($('#s-r3').value) },
+      budget: { school: Number($('#s-b1').value), weekend: Number($('#s-b2').value), holiday: Number($('#s-b3').value) },
     } };
   } else if (section === 'holidays') {
     body = { holidays: [...document.querySelectorAll('[data-row="hol"]')].map((r) => ({ label: val(r, 'label').value, from: val(r, 'from').value, to: val(r, 'to').value })) };

@@ -80,6 +80,7 @@ export async function devicePoll(env: Env, body: PollBody, now: number) {
     warnMinutes: l.settings.warnMinutes,
     penaltyGraceSeconds: 60,
     reloginGraceSeconds: 15,
+    budget: { leftMinutes: e.budgetView().leftMinutes },
     pause: {
       activeMinutes: l.settings.pauseActiveMinutes,
       breakMinutes: l.settings.pauseBreakMinutes,

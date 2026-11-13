@@ -55,6 +55,7 @@ export function baseState(l: Loaded) {
       start: minToHm(d.start),
       end: minToHm(d.end),
       checklistFirst: e.applicableItems(d.date).length > 0,
+      budget: e.budgetBase(d.date),
     })),
     exams: examView(l),
     timeline: e

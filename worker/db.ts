@@ -73,7 +73,7 @@ export const rowToPenalty = (r: Row): Penalty => ({
   person: s(r.person),
   label: s(r.label),
   minutes: n(r.minutes),
-  mode: r.mode === 'B' ? 'B' : 'A',
+  mode: r.mode === 'B' ? 'B' : r.mode === 'C' ? 'C' : 'A',
   date: s(r.date),
   cut: n(r.cut),
   carry: n(r.carry),
@@ -161,7 +161,7 @@ export async function load(env: Env, now: number): Promise<Loaded> {
       }))
       .filter((a) => penIds.has(a.penaltyId)),
     dayChanges: (dcRows.results as Row[]).map(
-      (r): DayChange => ({ id: n(r.id), ts: n(r.ts), date: s(r.date), kind: r.kind === 'start' ? 'start' : 'end', minutes: n(r.minutes) }),
+      (r): DayChange => ({ id: n(r.id), ts: n(r.ts), date: s(r.date), kind: r.kind === 'start' ? 'start' : r.kind === 'bonus' ? 'bonus' : 'end', minutes: n(r.minutes) }),
     ),
     grants: (grRows.results as Row[]).map(
       (r): Grant => ({ id: n(r.id), from: n(r.from_ts), to: n(r.to_ts), person: s(r.person), reason: s(r.reason) }),

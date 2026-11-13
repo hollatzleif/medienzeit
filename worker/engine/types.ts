@@ -22,6 +22,8 @@ export interface Settings {
   ratingFrom: string;
   /** Abzug in Minuten: 6–7 Punkte, 3–5 Punkte, 1–2 Punkte (8–10 = kein Abzug) */
   ratingMinutes: { ok: number; bad: number; worst: number };
+  /** Tageskonto: maximale Laptop-Zeit in Minuten (0 = keine Grenze) */
+  budget: { school: number; weekend: number; holiday: number };
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -39,6 +41,7 @@ export const DEFAULT_SETTINGS: Settings = {
   ratingRequired: true,
   ratingFrom: '',
   ratingMinutes: { ok: 30, bad: 60, worst: 120 },
+  budget: { school: 180, weekend: 300, holiday: 300 },
 };
 
 /** Abzug für eine Bewertung von 1–10 */
@@ -96,7 +99,8 @@ export interface Penalty {
   person: string;
   label: string;
   minutes: number;
-  mode: 'A' | 'B';
+  /** A = Sofort, B = Heute früher Schluss, C = vom Tageskonto */
+  mode: 'A' | 'B' | 'C';
   /** lokales Datum beim Eintragen */
   date: string;
   /** Modus B: so viele Minuten wurden heute vom Ende abgezogen */
@@ -119,7 +123,8 @@ export interface DayChange {
   id: number;
   ts: number;
   date: string;
-  kind: 'start' | 'end';
+  /** start/end = Uhrzeit (Minuten), bonus = zusätzliche Laptop-Zeit (Minuten) */
+  kind: 'start' | 'end' | 'bonus';
   minutes: number;
 }
 
@@ -142,4 +147,4 @@ export interface Checkpoint {
   remaining: Record<string, number>;
 }
 
-export type Kind = 'allowed' | 'grant' | 'penalty' | 'pause' | 'checklist' | 'schedule';
+export type Kind = 'allowed' | 'grant' | 'penalty' | 'pause' | 'budget' | 'checklist' | 'schedule';
