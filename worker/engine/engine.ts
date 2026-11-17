@@ -180,7 +180,9 @@ export class Engine {
     return this.cached(`day:${date}`, () => {
       const school = this.isSchoolDay(date);
       let start = school ? (this.s.earliestStart[String(weekdayOf(date))] ?? 720) : this.s.freeDayStart;
-      let end = this.isSchoolDay(addDays(date, 1)) ? this.s.endBeforeSchool : this.s.endOtherwise;
+      let end = this.isSchoolDay(addDays(date, 1))
+        ? (this.s.endBeforeSchoolByDay?.[String(weekdayOf(date))] ?? this.s.endBeforeSchool)
+        : this.s.endOtherwise;
 
       // Änderungen dieses Tages in zeitlicher Reihenfolge anwenden
       type Op = { ts: number; apply: () => void };
@@ -349,12 +351,47 @@ export class Engine {
     );
   }
 
+  /** Gesparte Zeit darf an diesem Tag genutzt werden (Fr, Sa, So) */
+  carryUsable(date: string): boolean {
+    return this.s.budgetCarry !== false && weekdayOf(date) >= 5;
+  }
+
+  /**
+   * Wochenkonto für einen Tag bis heute:
+   *  carryIn  = gesparte Zeit aus den Vortagen dieser Woche (Montag = 0)
+   *  avail    = an dem Tag verfügbare Minuten (Tageswert − Abzüge, ab Freitag + gesparte Zeit)
+   *  leftover = davon noch nicht genutzt
+   *  carryOut = was in den nächsten Tag mitgeht
+   */
+  budgetFlow(date: string): { base: number | null; carryIn: number; avail: number | null; used: number; leftover: number | null; carryOut: number } {
+    return this.cached(`flow:${date}`, () => {
+      const wd = weekdayOf(date);
+      const carryIn = wd === 1 || this.s.budgetCarry === false ? 0 : this.budgetFlow(addDays(date, -1)).carryOut;
+      const base = this.budgetBase(date);
+      const used = date <= this.today ? Math.floor(total(this.usageIv(date)) / MIN) : 0;
+      if (base === null) return { base, carryIn, avail: null, used, leftover: null, carryOut: carryIn };
+      const ded = this.budgetDeductions().byDate.get(date) ?? 0;
+      const usable = this.carryUsable(date);
+      const avail = base - ded + (usable ? carryIn : 0);
+      const leftover = Math.max(0, avail - used);
+      const carryOut = date > this.today ? carryIn : usable ? leftover : carryIn + leftover;
+      return { base, carryIn, avail, used, leftover, carryOut };
+    });
+  }
+
   budgetView(date = this.today) {
-    const base = this.budgetBase(date);
+    const f = this.budgetFlow(date);
     const deducted = this.budgetDeductions().byDate.get(date) ?? 0;
-    const used = Math.floor(total(this.usageIv(date)) / MIN);
-    if (base === null) return { limitMinutes: null, deductedMinutes: deducted, usedMinutes: used, leftMinutes: null as number | null };
-    return { limitMinutes: base, deductedMinutes: deducted, usedMinutes: used, leftMinutes: Math.max(0, base - deducted - used) };
+    const usable = this.carryUsable(date);
+    return {
+      limitMinutes: f.base,
+      carryMinutes: usable ? f.carryIn : 0,
+      /** Mo–Do: bis gestern gespart, ab Freitag nutzbar (dazu kommt, was heute übrig bleibt) */
+      savedMinutes: !usable && this.s.budgetCarry !== false && f.base !== null ? f.carryIn : 0,
+      deductedMinutes: deducted,
+      usedMinutes: f.used,
+      leftMinutes: f.leftover,
+    };
   }
 
   /** Ab wann ist das Tageskonto leer? (tatsächlich, und heute bei laufender Nutzung vorhergesagt) */
@@ -370,7 +407,7 @@ export class Engine {
         if (base === null) continue;
         const ds = dayStart(d);
         const de = dayEnd(d);
-        const availMs = (base - (this.budgetDeductions().byDate.get(d) ?? 0)) * MIN;
+        const availMs = (this.budgetFlow(d).avail ?? base) * MIN;
         if (availMs <= 0) {
           out.push([ds, de]);
           continue;
@@ -708,7 +745,11 @@ export class Engine {
     for (const p of this.inp.penalties) {
       if (p.ts >= t) continue;
       if (p.mode === 'C') {
-        if (this.budgetRemaining(p) === 0) settledIds.push(p.id);
+        // erst nach Ende der Woche abhaken – sonst würde der Abzug rückwirkend als „gespart“ zählen
+        const dist = this.budgetDeductions().byPenalty.get(p.id);
+        const last = dist ? [...dist.keys()].sort().pop() : p.date;
+        const monday = addDays(this.today, -(weekdayOf(this.today) - 1));
+        if (this.budgetRemaining(p) === 0 && (!last || last < monday)) settledIds.push(p.id);
         continue;
       }
       const r = snap.get(p.id) ?? 0;

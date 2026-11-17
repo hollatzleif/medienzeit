@@ -1,7 +1,7 @@
 // Laden der Daten aus D1 und Aufbau der Engine.
 
 import { Engine, EngineInput } from './engine/engine';
-import { addDays, dayStart, localDate } from './engine/time';
+import { addDays, dayStart, localDate, weekdayOf } from './engine/time';
 import {
   DEFAULT_SETTINGS,
   type Adjustment,
@@ -112,13 +112,17 @@ export async function load(env: Env, now: number): Promise<Loaded> {
   const today = localDate(now);
   const loadFrom = Math.min(from, dayStart(today));
   const loadFromDate = localDate(loadFrom);
+  // Für das Wochenkonto (gesparte Zeit) braucht es Nutzung, Zusatzzeit und Freigaben ab Montag
+  const monday = addDays(today, -(weekdayOf(today) - 1));
+  const weekFrom = Math.min(loadFrom, dayStart(monday));
+  const weekFromDate = localDate(weekFrom);
 
   const [evRows, exRows, dcRows, grRows, actRows, adjRows, ratRows] = await db.batch([
     db.prepare('SELECT date, item_id, checked, ts FROM checklist_events WHERE date >= ? ORDER BY ts').bind(loadFromDate),
     db.prepare('SELECT * FROM exams WHERE date >= ? ORDER BY date').bind(addDays(fromDate, -1)),
-    db.prepare('SELECT * FROM day_changes WHERE date >= ? ORDER BY ts').bind(loadFromDate),
-    db.prepare('SELECT * FROM grants WHERE to_ts >= ? ORDER BY from_ts').bind(loadFrom),
-    db.prepare('SELECT from_ts, to_ts FROM activity WHERE to_ts >= ? ORDER BY from_ts').bind(loadFrom - 12 * 3_600_000),
+    db.prepare('SELECT * FROM day_changes WHERE date >= ? ORDER BY ts').bind(weekFromDate),
+    db.prepare('SELECT * FROM grants WHERE to_ts >= ? ORDER BY from_ts').bind(weekFrom),
+    db.prepare('SELECT from_ts, to_ts FROM activity WHERE to_ts >= ? ORDER BY from_ts').bind(weekFrom - 12 * 3_600_000),
     db.prepare('SELECT * FROM adjustments WHERE ts >= ? ORDER BY ts').bind(checkpoint ? checkpoint.ts : 0),
     db.prepare('SELECT date, ts, score, person FROM ratings WHERE date >= ? ORDER BY ts').bind(loadFromDate),
   ]);

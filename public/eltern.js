@@ -376,11 +376,13 @@ function renderSettings() {
       <h2>Zeiten</h2>
       <h3>Früheste Startzeit an Schultagen (Schulschluss)</h3>
       <div class="grid2">${WD.map((w, i) => `<div><label>${w}</label><input type="time" data-es="${i + 1}" value="${minToTime(s.earliestStart[String(i + 1)])}"></div>`).join('')}</div>
+      <h3>Ende, wenn am nächsten Tag Schule ist</h3>
+      <div class="grid2">${['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag', 'Sonntag'].map((w, i) => `<div><label>${w}</label><input type="time" data-eb="${i + 1}" value="${minToTime((s.endBeforeSchoolByDay || {})[String(i + 1)] ?? s.endBeforeSchool)}"></div>`).join('')}</div>
       <h3>Freie Tage und Endzeiten</h3>
       <div class="grid2">
         <div><label>Start an freien Tagen</label><input type="time" id="s-free" value="${minToTime(s.freeDayStart)}"></div>
-        <div><label>Ende vor Schultagen</label><input type="time" id="s-endS" value="${minToTime(s.endBeforeSchool)}"></div>
-        <div><label>Ende sonst</label><input type="time" id="s-endO" value="${minToTime(s.endOtherwise)}"></div>
+
+        <div><label>Ende sonst (nächster Tag frei)</label><input type="time" id="s-endO" value="${minToTime(s.endOtherwise)}"></div>
       </div>
       <h3>Pausen, Laptop, Lernen</h3>
       <div class="grid2">
@@ -398,6 +400,7 @@ function renderSettings() {
         <div><label>Sa und So</label><input type="number" id="s-b2" value="${(s.budget || {}).weekend ?? 300}"></div>
         <div><label>Ferien/Feiertage (Mo–Fr)</label><input type="number" id="s-b3" value="${(s.budget || {}).holiday ?? 300}"></div>
       </div>
+      <label><input type="checkbox" id="s-carry" ${s.budgetCarry !== false ? 'checked' : ''}> Nicht genutzte Zeit Mo–Do sammeln und ab Freitag dazugeben (Sonntagabend verfällt der Rest)</label>
       <h3>Bewertung des Morgens</h3>
       <label><input type="checkbox" id="s-rr" ${s.ratingRequired ? 'checked' : ''}> Pflicht: Medienzeit erst nach Bewertung durch einen Erwachsenen</label>
       <div class="grid2">
@@ -478,7 +481,7 @@ $('#settings').addEventListener('click', async (e) => {
     body = { settings: {
       earliestStart: es,
       freeDayStart: timeToMin($('#s-free').value),
-      endBeforeSchool: timeToMin($('#s-endS').value),
+      endBeforeSchoolByDay: Object.fromEntries([...document.querySelectorAll('[data-eb]')].map((x) => [x.dataset.eb, timeToMin(x.value)])),
       endOtherwise: timeToMin($('#s-endO').value),
       pauseActiveMinutes: Number($('#s-pa').value),
       pauseMinutes: Number($('#s-pm').value),
@@ -490,6 +493,7 @@ $('#settings').addEventListener('click', async (e) => {
       ratingRequired: $('#s-rr').checked,
       ratingMinutes: { ok: Number($('#s-r1').value), bad: Number($('#s-r2').value), worst: Number($('#s-r3').value) },
       budget: { school: Number($('#s-b1').value), weekend: Number($('#s-b2').value), holiday: Number($('#s-b3').value) },
+      budgetCarry: $('#s-carry').checked,
     } };
   } else if (section === 'holidays') {
     body = { holidays: [...document.querySelectorAll('[data-row="hol"]')].map((r) => ({ label: val(r, 'label').value, from: val(r, 'from').value, to: val(r, 'to').value })) };

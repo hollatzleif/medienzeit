@@ -3,8 +3,10 @@ export interface Settings {
   earliestStart: Record<string, number>;
   /** Start an freien Tagen (Wochenende, Ferien, Feiertage) */
   freeDayStart: number;
-  /** Ende, wenn der nächste Tag ein Schultag ist */
+  /** Ende, wenn der nächste Tag ein Schultag ist (alter Einzelwert, wird von endBeforeSchoolByDay abgelöst) */
   endBeforeSchool: number;
+  /** Ende, wenn der nächste Tag ein Schultag ist – je Wochentag ("1" = Montag … "7" = Sonntag) */
+  endBeforeSchoolByDay: Record<string, number>;
   /** Ende sonst */
   endOtherwise: number;
   pauseActiveMinutes: number;
@@ -24,12 +26,15 @@ export interface Settings {
   ratingMinutes: { ok: number; bad: number; worst: number };
   /** Tageskonto: maximale Laptop-Zeit in Minuten (0 = keine Grenze) */
   budget: { school: number; weekend: number; holiday: number };
+  /** Nicht genutzte Zeit Mo–Do sammeln und ab Freitag dazugeben (Sonntagabend verfällt der Rest) */
+  budgetCarry: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
   earliestStart: { '1': 720, '2': 720, '3': 720, '4': 720, '5': 720 },
   freeDayStart: 690,
   endBeforeSchool: 1200,
+  endBeforeSchoolByDay: { '1': 1140, '2': 1140, '3': 1140, '4': 1140, '5': 1200, '6': 1200, '7': 1200 },
   endOtherwise: 1290,
   pauseActiveMinutes: 180,
   pauseBreakMinutes: 30,
@@ -42,6 +47,7 @@ export const DEFAULT_SETTINGS: Settings = {
   ratingFrom: '',
   ratingMinutes: { ok: 30, bad: 60, worst: 120 },
   budget: { school: 180, weekend: 300, holiday: 300 },
+  budgetCarry: true,
 };
 
 /** Abzug für eine Bewertung von 1–10 */

@@ -284,7 +284,11 @@ export async function saveSettings(env: Env, l: Loaded, person: string, body: Re
     const clean: Settings = {
       earliestStart: Object.fromEntries(['1', '2', '3', '4', '5'].map((k) => [k, t(s.earliestStart?.[k], 'Früheste Startzeit')])),
       freeDayStart: t(s.freeDayStart, 'Start an freien Tagen'),
-      endBeforeSchool: t(s.endBeforeSchool, 'Ende vor Schultagen'),
+      endBeforeSchool: l.settings.endBeforeSchool,
+      endBeforeSchoolByDay: Object.fromEntries(
+        ['1', '2', '3', '4', '5', '6', '7'].map((k) => [k, t(s.endBeforeSchoolByDay?.[k] ?? l.settings.endBeforeSchoolByDay[k], 'Ende vor Schultagen')]),
+      ),
+      budgetCarry: !!s.budgetCarry,
       endOtherwise: t(s.endOtherwise, 'Ende sonst'),
       pauseActiveMinutes: num(s.pauseActiveMinutes, 'Pausenregel (aktiv)', 1440),
       pauseBreakMinutes: num(s.pauseBreakMinutes, 'Pausenregel (Pause zählt ab)', 600),

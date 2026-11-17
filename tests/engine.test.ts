@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { Engine } from '../worker/engine/engine';
 import { hm, localDate, zonedToUtc } from '../worker/engine/time';
-import { at, checkAll, engine, input, nextAllowedLocal, penalty, uncheckAll } from './helpers';
+import { LEGACY, at, checkAll, engine, input, nextAllowedLocal, penalty, uncheckAll } from './helpers';
 import { DEFAULT_SETTINGS, ratingPenaltyMinutes } from '../worker/engine/types';
 
 // Kalender: Mo 09.11.2026, Di 10.11., Fr 13.11., Sa 14.11., So 15.11.
@@ -336,7 +336,7 @@ describe('Weitere Regeln', () => {
 });
 
 describe('Bewertung des morgendlichen Benehmens', () => {
-  const withRating = { ...DEFAULT_SETTINGS, ratingRequired: true };
+  const withRating = { ...DEFAULT_SETTINGS, ...LEGACY, ratingRequired: true };
   const rating = (date: string, time: string, score = 9) => ({ date, ts: at(date, time), score, person: 'Mama' });
 
   it('Checkliste erledigt, aber noch nicht bewertet → wartet auf Bewertung', () => {
@@ -467,11 +467,57 @@ describe('Tageskonto (max. Laptop-Zeit pro Tag)', () => {
 
   it('Tageskonto aus (0) → keine Grenze', () => {
     const e = engine(at(MO, '15:31'), {
-      settings: { ...DEFAULT_SETTINGS, ratingRequired: false, budget: { school: 0, weekend: 0, holiday: 0 } },
+      settings: { ...DEFAULT_SETTINGS, ...LEGACY, budget: { school: 0, weekend: 0, holiday: 0 } },
       checklistEvents: checkAll(MO, '11:00'),
       activity: [act(MO, '12:00', '13:30'), act(MO, '14:00', '15:30')],
     });
     expect(e.status().kind).toBe('allowed');
     expect(e.modeCSplit(30)).toBeNull();
+  });
+});
+
+describe('Neue Regeln: Sperrzeit Mo–Do 19:00, gesparte Zeit ab Freitag', () => {
+  const NEW = { ...DEFAULT_SETTINGS, ratingRequired: false };
+  const act = (date: string, from: string, to: string) => ({ from: at(date, from), to: at(date, to) });
+  const MI = '2026-11-11';
+  const DO = '2026-11-12';
+
+  it('Mo–Do vor Schultagen Ende 19:00, So vor Schultag 20:00, Fr 21:30', () => {
+    const e = engine(at(MO, '12:00'), { settings: NEW });
+    expect(e.dayInfo(MO).end).toBe(19 * 60);
+    expect(e.dayInfo(DO).end).toBe(19 * 60);
+    expect(e.dayInfo(FR).end).toBe(21 * 60 + 30);
+    expect(e.dayInfo(SO).end).toBe(20 * 60);
+    // Donnerstag vor einem Ferientag → 21:30
+    const h = engine(at(MO, '12:00'), { settings: NEW, holidays: [{ from: FR, to: FR, label: 'Brückentag' }] });
+    expect(h.dayInfo(DO).end).toBe(21 * 60 + 30);
+  });
+
+  it('Mo–Do gespart, ab Freitag dazu', () => {
+    // Mo 1 Std., Di 3 Std., Mi 0, Do 2 Std. genutzt → gespart: 2 + 0 + 3 + 1 = 6 Std.
+    const activity = [act(MO, '12:00', '13:00'), act(DI, '12:00', '13:30'), act(DI, '14:00', '15:30'), act(DO, '12:00', '14:00')];
+    const mi = engine(at(MI, '13:00'), { settings: NEW, activity });
+    expect(mi.budgetView()).toMatchObject({ limitMinutes: 180, carryMinutes: 0, leftMinutes: 180, savedMinutes: 120 + 0 });
+    const fr = engine(at(FR, '12:00'), { settings: NEW, activity });
+    expect(fr.budgetView()).toMatchObject({ limitMinutes: 180, carryMinutes: 360, leftMinutes: 540 });
+  });
+
+  it('Rest vom Freitag geht auf Samstag, Sonntagabend verfällt alles', () => {
+    const activity = [act(FR, '12:00', '13:00')]; // Mo–Do nichts genutzt: 4 × 3 Std. gespart
+    const sa = engine(at(SA, '12:00'), { settings: NEW, activity });
+    expect(sa.budgetView()).toMatchObject({ limitMinutes: 300, carryMinutes: 12 * 60 + 120 });
+    const mo2 = engine(at('2026-11-16', '12:00'), { settings: NEW, activity });
+    expect(mo2.budgetView('2026-11-16')).toMatchObject({ carryMinutes: 0, leftMinutes: 180, savedMinutes: 0 });
+  });
+
+  it('Strafe vom Tageskonto am Dienstag verringert auch die gesparte Zeit', () => {
+    const p = penalty(at(DI, '13:00'), 60, 'Lügen', 'Mama', { mode: 'C', cut: 60, carry: 0 });
+    const fr = engine(at(FR, '12:00'), { settings: NEW, penalties: [p] });
+    expect(fr.budgetView()).toMatchObject({ carryMinutes: 4 * 180 - 60 });
+  });
+
+  it('Ohne „gesparte Zeit“ (aus) bleibt alles wie bisher', () => {
+    const fr = engine(at(FR, '12:00'), { settings: { ...NEW, budgetCarry: false } });
+    expect(fr.budgetView()).toMatchObject({ carryMinutes: 0, leftMinutes: 180, savedMinutes: 0 });
   });
 });

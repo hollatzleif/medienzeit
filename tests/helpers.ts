@@ -27,10 +27,18 @@ export function penalty(ts: number, minutes: number, label = 'Rumschreien', pers
   return { id: pid++, ts, person, label, minutes, mode: 'A', date: localDate(ts), cut: 0, carry: 0, ...extra };
 }
 
+export const LEGACY = {
+  ratingRequired: false,
+  budgetCarry: false,
+  endBeforeSchoolByDay: { '1': 1200, '2': 1200, '3': 1200, '4': 1200, '5': 1200, '6': 1200, '7': 1200 },
+};
+
 export function input(now: number, over: Partial<EngineInput> = {}): EngineInput {
   return {
     now,
-    settings: { ...DEFAULT_SETTINGS, ratingRequired: false },
+    // Die Grundfälle aus dem Auftrag laufen mit den ursprünglichen Regeln (20:00 vor Schultagen, keine gesparte Zeit).
+    // Neue Regeln werden in eigenen Tests ausdrücklich eingeschaltet.
+    settings: { ...DEFAULT_SETTINGS, ...LEGACY },
     holidays: [],
     items: ITEMS,
     checklistEvents: [],
